@@ -1,0 +1,40 @@
+# Local MongoDB as a single-node replica set (Prisma needs a replica set for
+# transactions). Brings up on mongodb://localhost:27017/abzar?replicaSet=rs0
+#
+#   docker compose up -d
+#
+services:
+  mongo:
+    image: bitnami/mongodb:7.0
+    ports:
+      - '27017:27017'
+    environment:
+      MONGODB_REPLICA_SET_MODE: primary
+      MONGODB_REPLICA_SET_NAME: rs0
+      MONGODB_REPLICA_SET_KEY: local-dev-replica-key
+      MONGODB_ROOT_PASSWORD: ''
+      ALLOW_EMPTY_PASSWORD: 'yes'
+      MONGODB_ADVERTISED_HOSTNAME: localhost
+    volumes:
+      - mongo-data:/bitnami/mongodb
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional — only needed to exercise the multi-instance rate-limiter locally.
+  # Set REDIS_URL=redis://localhost:6379 to use it.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    command: ['redis-server', '--save', '', '--appendonly', 'no']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongo-data:

@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+.git
+.github
+.vscode
+*.log
+.env
+.env.*
+!.env.example
+test
+**/*.spec.ts
+Dockerfile
+docker-compose.yml
+README.md
+CLAUDE.md
+postman
