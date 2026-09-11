@@ -8,6 +8,7 @@ function toAdminListItem(o: OrderDetailRow) {
     orderNumber: o.orderNumber,
     status: o.status,
     total: o.total,
+    paymentMethod: o.paymentMethod,
     itemCount: o.items.reduce((n, i) => n + i.qty, 0),
     placedAt: o.placedAt,
     userId: o.userId,
@@ -67,6 +68,14 @@ export class BackofficeOrdersService {
     const order = await this.orders.findByNumber(orderNumber);
     if (!order) throw new NotFoundException('سفارش یافت نشد');
     const updated = await this.lifecycle.adminSetStatus(order, status, adminUserId, note);
+    return toAdminDetail(updated);
+  }
+
+  /** Admin confirms cash received in person/on delivery for a cash-method order. */
+  async confirmCashPayment(orderNumber: string, adminUserId: string) {
+    const order = await this.orders.findByNumber(orderNumber);
+    if (!order) throw new NotFoundException('سفارش یافت نشد');
+    const updated = await this.lifecycle.confirmCashPayment(order, adminUserId);
     return toAdminDetail(updated);
   }
 }

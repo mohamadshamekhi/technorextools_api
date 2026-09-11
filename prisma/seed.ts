@@ -82,6 +82,19 @@ async function main(): Promise<void> {
     });
   }
 
+  // 6. the two fixed payment-method rows — `code` mirrors Order.paymentMethod's enum;
+  // upsert (not count-gated) so a re-run also fixes a missing row without touching admin edits.
+  for (const row of [
+    { code: 'online' as const, title: 'پرداخت آنلاین', sortOrder: 1 },
+    { code: 'cash' as const, title: 'پرداخت در محل', sortOrder: 2 },
+  ]) {
+    await prisma.paymentMethod.upsert({
+      where: { code: row.code },
+      update: {},
+      create: row,
+    });
+  }
+
   console.log('seed complete');
 }
 

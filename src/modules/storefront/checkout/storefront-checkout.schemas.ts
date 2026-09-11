@@ -7,6 +7,9 @@ export const startCheckoutSchema = z.object({
   shippingMethodId: objectId.optional(),
   discountCode: z.string().trim().min(1).max(60).optional(),
   redeemPoints: z.coerce.number().int().min(0).default(0),
+  /** `cash` leaves the order `pending_payment` until an admin confirms receipt in the
+   *  backoffice. Rejected if the matching `PaymentMethod` row is `isActive: false`. */
+  paymentMethod: z.enum(['online', 'cash']).default('online'),
 });
 export type StartCheckoutInput = z.infer<typeof startCheckoutSchema>;
 

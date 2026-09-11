@@ -24,6 +24,18 @@ export class PaymentRepository {
     });
   }
 
+  /** Pending payment row for an order paid on delivery — no gateway authority yet. */
+  createCash(data: { orderId: string; amount: number }): Promise<Payment> {
+    return this.prisma.payment.create({
+      data: {
+        orderId: data.orderId,
+        gateway: 'cash',
+        amount: data.amount,
+        status: PaymentStatus.pending,
+      },
+    });
+  }
+
   findLatestPendingForOrder(orderId: string): Promise<Payment | null> {
     return this.prisma.payment.findFirst({
       where: { orderId, status: PaymentStatus.pending },

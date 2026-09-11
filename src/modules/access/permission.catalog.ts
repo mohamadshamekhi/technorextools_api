@@ -25,6 +25,7 @@ export const PERMISSIONS = [
   { code: 'orders.manage', group: 'orders', description: 'تغییر وضعیت سفارش' },
   { code: 'payments.view', group: 'orders', description: 'مشاهده تراکنش‌ها و وضعیت پرداخت' },
   { code: 'shipping.manage', group: 'orders', description: 'مدیریت روش‌های ارسال' },
+  { code: 'payment-methods.manage', group: 'orders', description: 'مدیریت روش‌های پرداخت' },
 
   // marketing
   { code: 'discounts.view', group: 'marketing', description: 'مشاهده کدهای تخفیف' },

@@ -47,4 +47,14 @@ export class BackofficeOrdersController {
   ) {
     return this.orders.setStatus(orderNumber, body.status, user.id, body.note);
   }
+
+  /** Confirm cash-on-delivery/in-person payment for a `pending_payment` cash-method order. */
+  @RequirePermissions('orders.manage')
+  @Patch(':orderNumber/confirm-cash-payment')
+  confirmCashPayment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('orderNumber') orderNumber: string,
+  ) {
+    return this.orders.confirmCashPayment(orderNumber, user.id);
+  }
 }

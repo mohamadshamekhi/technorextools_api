@@ -46,7 +46,8 @@ Consumers — both proxy browser traffic here and never touch the DB; this servi
 | Cart header | `X-Cart-Token: <sessionToken>` — guest cart identity on `/storefront/cart/*`; client persists the `token` returned in the cart body |
 | Login | OTP: `POST /api/v1/auth/otp/request` → `POST /api/v1/auth/otp/verify` → `{ accessToken, expiresIn, refreshToken, isNewUser, user }`. `otp/verify` also accepts optional `cartToken` — guest cart merged into the user's cart on login |
 | `GET /api/v1/auth/me` | `{ id, fullName, mobile, email, role, referralCode }` (`role` = role slug). `PATCH /auth/me` edits `fullName` / `email` only |
-| Checkout | `POST /api/v1/storefront/checkout` → `{ orderNumber, total, paymentUrl, paid }` (send the browser to `paymentUrl`). Gateway returns to `GET /api/v1/payment/callback?orderNumber=…` → 302 to `PAYMENT_RESULT_REDIRECT_URL?orderNumber=&status=success\|failed` |
+| Payment methods | `Order.paymentMethod` stays a plain enum (`online`\|`cash`, no FK). `PaymentMethod` (`payment_methods`) is a *separate* admin-managed metadata table keyed 1:1 by that same enum (`code @unique`, `title`, `description`, `isActive`, `sortOrder`) — two rows seeded by default; full CRUD (`GET`/`GET :id`/`POST`/`PATCH`/`DELETE backoffice/payment-methods`, `payment-methods.manage`), but `code` is only settable on create and must be `online`\|`cash` (checkout doesn't know any other code) — create 409s if that code already has a row. Public list: `GET storefront/payment-methods` (active only). `code: online` settles through the single configured `PaymentProvider` gateway (`PAYMENT_PROVIDER`); `code: cash` is settled manually by an admin. `isActive:false` **and** "no row for this code" are both enforced at checkout, not just a panel flag. |
+| Checkout | `POST /api/v1/storefront/checkout` body takes `paymentMethod: 'online'\|'cash'` (default `online`; rejected with 400 if that code's `PaymentMethod` row is `isActive:false`) → `{ orderNumber, total, paymentUrl, paid }` (`paymentUrl` is `null` for `cash`; send the browser to it for `online`). Gateway returns to `GET /api/v1/payment/callback?orderNumber=…` → 302 to `PAYMENT_RESULT_REDIRECT_URL?orderNumber=&status=success\|failed`. Cash orders stay `pending_payment` until an admin confirms receipt via `PATCH /api/v1/backoffice/orders/:orderNumber/confirm-cash-payment` (`orders.manage`); `payAgain` (`POST /storefront/checkout/:orderNumber/pay`) is online-only. |
 | JWT claims | `sub`, `mobile`, `role` (slug) + `exp`. **Permissions are NOT in the token** — resolved per-request from the DB. |
 | Roles | dynamic — rows in `roles`, seeded system roles `superadmin` / `accountant` / `customer`; `superadmin` implicitly holds every permission |
 | Error body | `{ statusCode, error, message, fieldErrors?, path, timestamp }` |
@@ -85,7 +86,8 @@ All routes under `/api/v1` (`API_PREFIX`); `/health` excluded.
 `postman/abzar-api.postman_environment.json` holds `baseUrl`, `apiBase`, `mobile`, `otpCode`,
 `serviceToken`, `accessToken`, `refreshToken`, `userId`, `roleId`, `customerRoleId`, plus
 resource ids captured by request test scripts (`productId`/`productSlug`, `addressId`,
-`orderNumber`/`orderId`, `discountId`/`discountCode`, `shippingMethodId`, `ticketId`, `repairId`,
+`orderNumber`/`orderId`, `discountId`/`discountCode`, `shippingMethodId`,
+`paymentMethodId`/`paymentMethodIdCash`, `ticketId`, `repairId`,
 `bundleId`/`bundleSlug`, `articleId`/`articleSlug`, `branchId`, `warrantySerial`, `commentId`,
 `mediaId`).
 **Request OTP** saves `otpCode` from `devCode`; **Verify OTP** saves the tokens. Validate the

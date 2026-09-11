@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderStatus, Prisma, type PaymentMethodKind } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 const detailInclude = {
@@ -23,6 +23,7 @@ export interface NewOrderInput {
   discountAmount: number;
   shippingCost: number;
   total: number;
+  paymentMethod: PaymentMethodKind;
   items: Array<{
     variantId: string | null;
     bundleId: string | null;
@@ -131,6 +132,7 @@ export class OrderRepository {
         discountAmount: input.discountAmount,
         shippingCost: input.shippingCost,
         total: input.total,
+        paymentMethod: input.paymentMethod,
         status: OrderStatus.pending_payment,
         items: { create: input.items },
         statusHistory: {

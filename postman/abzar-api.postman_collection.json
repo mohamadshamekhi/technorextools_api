@@ -1818,6 +1818,38 @@
 									}
 								}
 							]
+						},
+						{
+							"name": "Confirm Cash Payment",
+							"request": {
+								"method": "PATCH",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/orders/{{orderNumber}}/confirm-cash-payment",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"orders",
+										"{{orderNumber}}",
+										"confirm-cash-payment"
+									],
+									"query": []
+								}
+							},
+							"description": "`orders.manage`. No body. Only for a `pending_payment` order placed with a `paymentMethod.kind: cash` — marks it `paid` (stock decrement, loyalty credit, cart conversion) same as a successful gateway callback. 400 if the order's method isn't `cash` or it isn't `pending_payment`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204,400]));"
+										]
+									}
+								}
+							]
 						}
 					]
 				},
@@ -1997,6 +2029,188 @@
 								}
 							},
 							"description": "`shipping.manage`. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Payment Methods",
+					"item": [
+						{
+							"name": "List Payment Methods",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods"
+									],
+									"query": []
+								}
+							},
+							"description": "`payment-methods.manage`. دو ردیف (`online`,`cash`) از seed می‌آیند؛ هر کدام هم قابل create/delete است اما `code` یکتاست (حداکثر یک ردیف به‌ازای هر کد).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"const rows = pm.response.json();",
+											"const online = rows.find(r => r.code === 'online');",
+											"const cash = rows.find(r => r.code === 'cash');",
+											"if (online) pm.environment.set('paymentMethodId', online.id);",
+											"if (cash) pm.environment.set('paymentMethodIdCash', cash.id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Payment Method",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"code\": \"cash\",\n  \"title\": \"پرداخت در محل\",\n  \"description\": \"پرداخت نقدی هنگام تحویل\",\n  \"isActive\": true,\n  \"sortOrder\": 2\n}"
+								}
+							},
+							"description": "`payment-methods.manage`. Body: code(online|cash) + title, description?, isActive?, sortOrder?. `code` یکتاست — 409 اگر رکوردی با همان code از قبل باشد؛ فقط بعد از Delete Payment Method همان code دوباره قابل ساخت است. چک‌اوت فقط `online`/`cash` را می‌شناسد — code دیگری اضافه نکنید.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('paymentMethodId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Payment Method Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods/{{paymentMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods",
+										"{{paymentMethodId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`payment-methods.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Payment Method",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods/{{paymentMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods",
+										"{{paymentMethodId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"پرداخت آنلاین (زرین‌پال)\",\n  \"description\": \"پرداخت امن با کارت‌های بانکی عضو شتاب\",\n  \"isActive\": true,\n  \"sortOrder\": 1\n}"
+								}
+							},
+							"description": "`payment-methods.manage`. Body: title?, description?, isActive?, sortOrder? — نه `code` (غیرقابل‌تغییر). `isActive:false` واقعاً در چک‌اوت هم اعمال می‌شود (نه فقط تزئینی در پنل).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Payment Method",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods/{{paymentMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods",
+										"{{paymentMethodId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`payment-methods.manage`. 204. با حذف تنها ردیف یک code، آن روش عملاً برای چک‌اوت مشتری در دسترس نمی‌ماند (مثل isActive:false، نه فقط تزئینی).",
 							"event": [
 								{
 									"listen": "test",
@@ -4424,6 +4638,41 @@
 					]
 				},
 				{
+					"name": "Payment Methods",
+					"item": [
+						{
+							"name": "List Payment Methods",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/payment-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"payment-methods"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontPaymentMethodView[]` (`id`,`code`,`title`,`description`,`sortOrder`) — روش‌های فعال، مرتب بر اساس `sortOrder`. `code` (`online`|`cash`) را در Start Checkout به‌عنوان `paymentMethod` بفرست.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
 					"name": "Warranty",
 					"item": [
 						{
@@ -4781,10 +5030,10 @@
 								},
 								"body": {
 									"mode": "raw",
-									"raw": "{\n  \"addressId\": \"{{addressId}}\",\n  \"shippingMethodId\": \"{{shippingMethodId}}\",\n  \"redeemPoints\": 0\n}"
+									"raw": "{\n  \"addressId\": \"{{addressId}}\",\n  \"shippingMethodId\": \"{{shippingMethodId}}\",\n  \"redeemPoints\": 0,\n  \"paymentMethod\": \"online\"\n}"
 								}
 							},
-							"description": "Authenticated. Body: `startCheckoutSchema` (`addressId`,`shippingMethodId?`,`discountCode?`,`redeemPoints?`). Reserves stock, creates Order `pending_payment`, opens payment. → `CheckoutStartResult` (`orderNumber`,`total`,`paymentUrl`,`paid`). 409 اگر سفارش pending باز دارید.",
+							"description": "Authenticated. Body: `startCheckoutSchema` (`addressId`,`shippingMethodId?`,`discountCode?`,`redeemPoints?`,`paymentMethod?`: `online`\\|`cash`, default `online` — از `GET storefront/payment-methods` بگیر و اگر `isActive:false` بود اجازه نده انتخاب بشه، سرور هم رد می‌کنه). Reserves stock, creates Order `pending_payment`, opens payment for `online` (`paymentUrl` null برای `cash` — منتظر تأیید ادمین). → `CheckoutStartResult` (`orderNumber`,`total`,`paymentUrl`,`paid`). 409 اگر سفارش pending باز دارید.",
 							"event": [
 								{
 									"listen": "test",
@@ -4793,6 +5042,46 @@
 										"exec": [
 											"pm.test('ok', () => pm.response.code===201);",
 											"pm.environment.set('orderNumber', pm.response.json().orderNumber);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Start Checkout (Cash)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/checkout",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"checkout"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"addressId\": \"{{addressId}}\",\n  \"shippingMethodId\": \"{{shippingMethodId}}\",\n  \"redeemPoints\": 0,\n  \"paymentMethod\": \"cash\"\n}"
+								}
+							},
+							"description": "Authenticated. Same as Start Checkout with `paymentMethod: \"cash\"` — پرداخت در محل تحویل. 400 اگر روش `cash` در `payment-methods` غیرفعال باشد. `paymentUrl` در پاسخ `null` است؛ سفارش `pending_payment` می‌ماند تا ادمین با `Confirm Cash Payment` (`backoffice/orders`) آن را تسویه کند.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.test('no paymentUrl for cash', () => pm.expect(pm.response.json().paymentUrl).to.be.null);"
 										]
 									}
 								}

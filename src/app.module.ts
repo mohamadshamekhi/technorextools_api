@@ -19,6 +19,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { CartModule } from './modules/cart/cart.module';
 import { ContentModule } from './modules/content/content.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
+import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
 import { BundlesModule } from './modules/bundles/bundles.module';
 import { WarrantyModule } from './modules/warranty/warranty.module';
 import { AddressModule } from './modules/address/address.module';
@@ -34,6 +35,7 @@ import { MediaModule } from './modules/media/media.module';
 import { PaymentCallbackModule } from './modules/payment/payment-callback.module';
 import { BackofficeOrdersModule } from './modules/backoffice/orders/backoffice-orders.module';
 import { BackofficeShippingModule } from './modules/backoffice/shipping/backoffice-shipping.module';
+import { BackofficePaymentMethodsModule } from './modules/backoffice/payment-methods/backoffice-payment-methods.module';
 import { BackofficeDiscountsModule } from './modules/backoffice/discounts/backoffice-discounts.module';
 import { BackofficeCommentsModule } from './modules/backoffice/comments/backoffice-comments.module';
 import { BackofficeTicketsModule } from './modules/backoffice/tickets/backoffice-tickets.module';
@@ -53,6 +55,7 @@ import { StorefrontCatalogModule } from './modules/storefront/catalog/storefront
 import { StorefrontCartModule } from './modules/storefront/cart/storefront-cart.module';
 import { StorefrontContentModule } from './modules/storefront/content/storefront-content.module';
 import { StorefrontShippingModule } from './modules/storefront/shipping/storefront-shipping.module';
+import { StorefrontPaymentMethodsModule } from './modules/storefront/payment-methods/storefront-payment-methods.module';
 import { StorefrontWarrantyModule } from './modules/storefront/warranty/storefront-warranty.module';
 import { StorefrontAddressesModule } from './modules/storefront/addresses/storefront-addresses.module';
 import { StorefrontWishlistModule } from './modules/storefront/wishlist/storefront-wishlist.module';
@@ -72,6 +75,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     CartModule,
     ContentModule,
     ShippingModule,
+    PaymentMethodsModule,
     BundlesModule,
     WarrantyModule,
     AddressModule,
@@ -115,6 +119,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     BackofficeInventoryModule,
     BackofficeOrdersModule,
     BackofficeShippingModule,
+    BackofficePaymentMethodsModule,
     BackofficeDiscountsModule,
     BackofficeCommentsModule,
     BackofficeTicketsModule,
@@ -131,6 +136,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     StorefrontCartModule,
     StorefrontContentModule,
     StorefrontShippingModule,
+    StorefrontPaymentMethodsModule,
     StorefrontWarrantyModule,
     StorefrontAddressesModule,
     StorefrontWishlistModule,

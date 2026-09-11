@@ -19,6 +19,7 @@ import { LoyaltyService } from '../../loyalty/loyalty.service';
 import { OrdersService } from '../../orders/orders.service';
 import { OrderRepository } from '../../orders/repositories/order.repository';
 import { PaymentRepository } from '../../orders/repositories/payment.repository';
+import { PaymentMethodRepository } from '../../payment-methods/repositories/payment-method.repository';
 import { ShippingMethodRepository } from '../../shipping/repositories/shipping-method.repository';
 import type { PreviewCheckoutInput, StartCheckoutInput } from './storefront-checkout.schemas';
 
@@ -65,6 +66,7 @@ export class StorefrontCheckoutService {
     private readonly orders: OrderRepository,
     private readonly ordersService: OrdersService,
     private readonly payments: PaymentRepository,
+    private readonly paymentMethods: PaymentMethodRepository,
     private readonly paymentProvider: PaymentProvider,
     private readonly settings: AppSettingsService,
     private readonly config: ConfigService<Env, true>,
@@ -90,6 +92,10 @@ export class StorefrontCheckoutService {
     const cart = await this.loadCartOrThrow(userId);
     const lines = await this.resolveLines(userId, cart);
     const address = await this.ownedAddress(userId, input.addressId);
+    const paymentMethod = await this.paymentMethods.findByCode(input.paymentMethod);
+    if (!paymentMethod || !paymentMethod.isActive) {
+      throw new BadRequestException('روش پرداخت نامعتبر است');
+    }
 
     const quote = await this.computeQuote(
       userId,
@@ -114,6 +120,7 @@ export class StorefrontCheckoutService {
       discountAmount: quote.discountAmount,
       shippingCost: quote.shippingCost,
       total: quote.total,
+      paymentMethod: paymentMethod.code,
       items: lines.map((l) => ({
         variantId: l.variantId,
         bundleId: l.bundleId,
@@ -134,6 +141,11 @@ export class StorefrontCheckoutService {
       return { orderNumber, total: 0, paymentUrl: null, paid: true };
     }
 
+    if (paymentMethod.code === 'cash') {
+      await this.payments.createCash({ orderId: order.id, amount: quote.total });
+      return { orderNumber, total: quote.total, paymentUrl: null, paid: false };
+    }
+
     const paymentUrl = await this.openPayment(orderNumber, order.id, quote.total, mobile);
     return { orderNumber, total: quote.total, paymentUrl, paid: false };
   }
@@ -144,6 +156,9 @@ export class StorefrontCheckoutService {
     if (order.userId !== userId) throw new ForbiddenException('این سفارش متعلق به شما نیست');
     if (order.status !== 'pending_payment') {
       throw new BadRequestException('این سفارش قابل پرداخت نیست');
+    }
+    if (order.paymentMethod === 'cash') {
+      throw new BadRequestException('این سفارش با پرداخت در محل ثبت شده است');
     }
     const windowMin = await this.settings.getNumber('stock_hold_minutes');
     if (order.placedAt.getTime() + windowMin * 60_000 < Date.now()) {

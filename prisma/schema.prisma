@@ -513,6 +513,9 @@ model Order {
   discount         Discount? @relation(fields: [discountId], references: [id])
   shippingMethodId String?  @db.ObjectId
   shippingMethod   ShippingMethod? @relation(fields: [shippingMethodId], references: [id])
+  /** `code` on the admin-managed `PaymentMethod` (`payment-methods`) — no FK; that table is
+   *  metadata (title/description/isActive) keyed by this same enum, not referenced by id. */
+  paymentMethod    PaymentMethodKind @default(online)
   subtotal         Int
   discountAmount   Int      @default(0)
   shippingCost     Int      @default(0)
@@ -529,6 +532,32 @@ model Order {
   @@index([userId])
   @@index([status])
   @@map("orders")
+}
+
+/** Admin-editable metadata for each `PaymentMethodKind`. `code` mirrors
+ *  `Order.paymentMethod`'s enum exactly and is `@unique` — create/delete only toggle
+ *  *whether* a code currently has a row (at most one each), they can't add a code
+ *  checkout doesn't already handle. Two rows are seeded by default. `isActive: false`
+ *  and "no row for this code" are both enforced at checkout (`StorefrontCheckoutService`),
+ *  not just a panel decoration. */
+model PaymentMethod {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  code        PaymentMethodKind @unique
+  title       String
+  description String?
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@map("payment_methods")
+}
+
+enum PaymentMethodKind {
+  /** Settled via `PaymentProvider` (the single configured gateway) at checkout. */
+  online
+  /** Settled manually — admin confirms receipt in the backoffice. */
+  cash
 }
 
 enum OrderStatus {

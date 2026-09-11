@@ -44,6 +44,7 @@ src/
     ├── cart/                    # @Global — cart domain core: CartRepository (+ CartItem as aggregate child) · cart.pricing.ts (price-tier resolution). Shared by storefront/cart and (later) checkout
     ├── content/                 # @Global — content core: article · branch · seo-meta · site-setting repos + AppSettingsService (typed settings + defaults)
     ├── shipping/                # @Global — shipping core: shipping-method.repository.ts
+    ├── payment-methods/         # @Global — payment-method core: payment-method.repository.ts. `PaymentMethod` is metadata (title/description/isActive/sortOrder) keyed by `code @unique` = `Order.paymentMethod`'s enum, no FK; two rows seeded by default, full CRUD but `code` fixed to online|cash on create (checkout doesn't handle any other). `code:online` settles via the single `PaymentProvider` gateway, `code:cash` settles manually.
     ├── bundles/                 # @Global — bundles core: bundle.repository.ts (+ bundle_items as aggregate child)
     ├── warranty/                # @Global — warranty core: warranty.repository.ts + repair-request.repository.ts
     ├── address/                 # @Global — address core: address.repository.ts (customer shipping addresses)
@@ -65,6 +66,7 @@ src/
     │   ├── inventory/           #   BackofficeInventoryController — inventory.manage; variant stock/price + price tiers (deliberately NOT under products.manage)
     │   ├── orders/              #   BackofficeOrdersController (orders.view/manage) + BackofficePaymentsController (payments.view)
     │   ├── shipping/            #   BackofficeShippingController — shipping.manage; shipping-method CRUD
+    │   ├── payment-methods/     #   BackofficePaymentMethodsController — payment-methods.manage; full CRUD, `code` set only on create (online|cash, 409 if that code exists) and immutable after
     │   ├── discounts/           #   BackofficeDiscountsController — discounts.view/manage; discount CRUD + /:id/usages
     │   ├── comments/            #   BackofficeCommentsController — comments.moderate; queue + approve/reject
     │   ├── tickets/             #   BackofficeTicketsController — tickets.handle; reply as staff, set status
@@ -78,9 +80,10 @@ src/
         ├── catalog/             #   StorefrontCatalogController — @Public reads (categories tree, brands, product list w/ faceted `attrs=`, product detail, approved comments, bundle list+detail) + authenticated POST products/:slug/comments
         ├── content/             #   StorefrontContentController — all @Public; articles list/detail (published only), branches list/detail, seo meta by entity, public site settings (`site_title` + `public_*`)
         ├── shipping/            #   StorefrontShippingController — @Public; active shipping methods
+        ├── payment-methods/     #   StorefrontPaymentMethodsController — @Public; active payment methods (`code` — `online`\|`cash` — goes in checkout's `paymentMethod`)
         ├── warranty/            #   StorefrontWarrantyController — @Public; warranty lookup by serial number
         ├── cart/                #   StorefrontCartController — @OptionalAuth (guest via X-Cart-Token, user via Bearer); get/add/update-qty/remove/clear; price-tier pricing + per-line availability; StorefrontCartService.mergeGuestCartIntoUser called from AuthService.verifyOtp
-        ├── checkout/            #   StorefrontCheckoutController — authenticated; POST /quote (breakdown), POST / (place order + reserve + open payment), POST /:orderNumber/pay (retry)
+        ├── checkout/            #   StorefrontCheckoutController — authenticated; POST /quote (breakdown), POST / (place order + reserve + open payment; body `paymentMethod` decides online-gateway vs cash-pending, rejected if that code's `PaymentMethod` row is inactive), POST /:orderNumber/pay (retry, online-only)
         ├── orders/              #   StorefrontOrdersController — authenticated, owner-scoped; my orders list + detail
         ├── addresses/          #   StorefrontAddressesController — authenticated, owner-scoped; address CRUD (default handling)
         ├── wishlist/            #   StorefrontWishlistController — authenticated; list/add/remove
@@ -89,8 +92,8 @@ src/
         ├── tickets/             #   StorefrontTicketsController — authenticated, owner-scoped; create + messages
         └── repairs/             #   StorefrontRepairsController — authenticated, owner-scoped; create/list/detail (optional warranty serial)
 prisma/
-├── schema.prisma  # provider = "mongodb"; ~45 models across 5 domains (identity/access · catalog · cart&order · interaction · content)
-└── seed.ts        # permission catalog + system roles + superadmin + site_settings (stock_hold_minutes, loyalty_*, referral_reward_points, abandoned_cart_hours, site_title) + default shipping method — uses PrismaClient directly (outside Nest DI)
+├── schema.prisma  # provider = "mongodb"; ~46 models across 5 domains (identity/access · catalog · cart&order · interaction · content)
+└── seed.ts        # permission catalog + system roles + superadmin + site_settings (stock_hold_minutes, loyalty_*, referral_reward_points, abandoned_cart_hours, site_title) + default shipping method + default payment methods (online, cash) — uses PrismaClient directly (outside Nest DI)
 prisma.config.ts   # schema path + seed command; loads .env via process.loadEnvFile
 postman/           # abzar-api.postman_{collection,environment}.json — folders Auth / Backoffice / Storefront / Health
 ```

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethodKind } from '@prisma/client';
 import { SmsService, type SmsTemplate } from '../../common/sms/sms.service';
 import { CartRepository } from '../cart/repositories/cart.repository';
 import { ProductVariantRepository } from '../catalog/repositories/product-variant.repository';
@@ -94,6 +94,17 @@ export class OrdersService {
     await this.grantReferralRewardIfFirstPaid(order.userId);
     void this.notify(order.userId, 'order_paid', [order.orderNumber]);
     return paid;
+  }
+
+  /** Admin confirms cash received for a `pending_payment` cash-method order (backoffice). */
+  async confirmCashPayment(order: OrderDetailRow, adminUserId: string): Promise<OrderDetailRow> {
+    if (order.paymentMethod !== PaymentMethodKind.cash) {
+      throw new BadRequestException('این سفارش با روش پرداخت نقدی ثبت نشده است');
+    }
+    if (order.status !== OrderStatus.pending_payment) {
+      throw new BadRequestException('این سفارش قابل تسویه نقدی نیست');
+    }
+    return this.markPaid(order, `CASH:${adminUserId}`);
   }
 
   /** A failed or cancelled payment attempt (from the callback). */

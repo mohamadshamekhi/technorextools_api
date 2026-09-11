@@ -32,6 +32,16 @@ content (articles, branches, seo-meta, public settings) · shipping methods · w
   usage recorded on *paid*. `storefront/discounts/validate` (auth); `backoffice/discounts` CRUD +
   `/:id/usages`.
 - **shipping** — `backoffice/shipping-methods` CRUD (public list already shipped).
+- **payment methods** (`payment-methods/` @Global core) — `Order.paymentMethod` stays a plain
+  `online|cash` enum (no FK); `PaymentMethod` is separate admin-managed metadata
+  (`code @unique`, `title`, `description`, `isActive`, `sortOrder`) keyed 1:1 by that enum —
+  two rows seeded by default, full CRUD via `backoffice/payment-methods`
+  (`payment-methods.manage`), but `code` is set only on create (`online`\|`cash`, 409 if that
+  code already has a row) and never editable after. Public list: `storefront/payment-methods`.
+  Checkout's `paymentMethod` picks a code, rejected (400) if that code has no row or is
+  `isActive:false`; `online` opens the single configured `PaymentProvider` gateway, `cash`
+  leaves the order
+  `pending_payment` for `PATCH backoffice/orders/:orderNumber/confirm-cash-payment` to settle.
 - **loyalty** (`loyalty/` @Global core) — points ledger (earn on paid = `total × loyalty_points_per_toman`,
   redeem 1pt=1T, refund on cancel/expire). `storefront/loyalty` (balance/history + `/referrals`);
   `backoffice/loyalty/:userId` (+ manual `/adjust`).

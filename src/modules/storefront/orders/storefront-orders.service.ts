@@ -1,11 +1,12 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import type { OrderStatus } from '@prisma/client';
+import type { OrderStatus, PaymentMethodKind } from '@prisma/client';
 import { OrderRepository, type OrderDetailRow } from '../../orders/repositories/order.repository';
 
 export interface OrderListItemView {
   orderNumber: string;
   status: OrderStatus;
   total: number;
+  paymentMethod: PaymentMethodKind;
   itemCount: number;
   placedAt: Date;
 }
@@ -34,6 +35,7 @@ function toListItem(o: OrderDetailRow): OrderListItemView {
     orderNumber: o.orderNumber,
     status: o.status,
     total: o.total,
+    paymentMethod: o.paymentMethod,
     itemCount: o.items.reduce((n, i) => n + i.qty, 0),
     placedAt: o.placedAt,
   };
