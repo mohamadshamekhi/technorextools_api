@@ -29,4 +29,12 @@ export class RefreshTokenRepository {
       data: { revokedAt: new Date() },
     });
   }
+
+  /** Purge tokens expired or revoked before `before` (sweep job). Returns the count removed. */
+  async deleteDeadBefore(before: Date): Promise<number> {
+    const { count } = await this.prisma.refreshToken.deleteMany({
+      where: { OR: [{ expiresAt: { lt: before } }, { revokedAt: { lt: before } }] },
+    });
+    return count;
+  }
 }

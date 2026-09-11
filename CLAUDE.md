@@ -13,6 +13,7 @@ in `docs/` — **read the relevant one before working in that area**:
 | editing `schema.prisma` or writing a repository | `.claude/rules/prisma-and-data.md` |
 | writing a controller/service/module | `.claude/rules/nestjs-style.md` |
 | writing or updating tests | `.claude/rules/testing.md` |
+| any code touch — self-check before calling it done, auto-fix definition | `.claude/rules/quality-gate.md` |
 | anything touching auth, input, queries, ownership | `.claude/rules/security.md` |
 | committing, branching, or opening a PR | `.claude/rules/git-and-delivery.md` |
 | — token-economy & working rules (auto-loaded) | `.claude/rules/token-economy.md` |
@@ -85,7 +86,8 @@ All routes under `/api/v1` (`API_PREFIX`); `/health` excluded.
 `serviceToken`, `accessToken`, `refreshToken`, `userId`, `roleId`, `customerRoleId`, plus
 resource ids captured by request test scripts (`productId`/`productSlug`, `addressId`,
 `orderNumber`/`orderId`, `discountId`/`discountCode`, `shippingMethodId`, `ticketId`, `repairId`,
-`bundleId`/`bundleSlug`, `articleId`/`articleSlug`, `branchId`, `warrantySerial`, `commentId`).
+`bundleId`/`bundleSlug`, `articleId`/`articleSlug`, `branchId`, `warrantySerial`, `commentId`,
+`mediaId`).
 **Request OTP** saves `otpCode` from `devCode`; **Verify OTP** saves the tokens. Validate the
 JSON parses before committing.
 
@@ -130,6 +132,8 @@ lookup models.
 | SMS | provider-agnostic `SmsService` port; `ConsoleSmsProvider` (dev) / `MelipayamakSmsProvider` — by `SMS_PROVIDER` |
 | Payments | provider-agnostic `PaymentProvider` port (`common/payment`); `FakePaymentProvider` (dev/CI) / `ZarinpalPaymentProvider` — by `PAYMENT_PROVIDER` |
 | Scheduling | in-process `setInterval` sweep (`modules/sweep`) — no external scheduler / `@nestjs/schedule` |
+| Logging | `JsonLogger` (`common/logging`, dependency-free) — JSON lines in `production`, Nest pretty logger otherwise; `HttpLoggerInterceptor` per-request |
+| File storage | S3-compatible object storage; client sends the file to `POST /backoffice/media/upload` (multipart, ≤ 50 MB), API stores it server-side via a dependency-free SigV4 presigned PUT (`modules/media`, `s3-presigner.ts`) and persists a `Media` row. JPEG/PNG are re-encoded to WebP first (`image-webp.ts`, `sharp`; corrupt image → 400); other types pass through. `Media` is polymorphic (`ownerType` + `ownerId` + `purpose`) — product images/datasheets/3D models, brand logos, article covers, ticket attachments are all `Media`; consuming services stitch them in via `MediaRepository` (`@Global`). No `ProductImage` model. |
 | Validation | Zod at every boundary (`ZodValidationPipe`) — no DTO classes, no `class-validator` |
 | Rate limiting | `@nestjs/throttler` (global 120/min; tighter on auth); OTP has its own per-mobile limits. In-memory by default; `REDIS_URL` shares counters across instances |
 | Package manager | pnpm 11 — build-script allowlist in `pnpm-workspace.yaml` |

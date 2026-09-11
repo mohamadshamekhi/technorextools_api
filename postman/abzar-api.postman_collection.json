@@ -1254,7 +1254,7 @@
 								],
 								"body": {
 									"mode": "raw",
-									"raw": "{\n  \"title\": \"بکس بادی ۱/۲ اینچ پوما\",\n  \"slug\": \"puma-air-wrench-1-2\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"brandId\": \"{{brandId}}\",\n  \"shortDesc\": \"بکس بادی صنعتی با گشتاور ۶۵۰ نیوتن‌متر\",\n  \"description\": \"<p>مناسب کارگاه‌های صنعتی…</p>\",\n  \"basePrice\": 12500000,\n  \"isAmazingDeal\": false,\n  \"datasheetUrl\": null,\n  \"isActive\": true\n}",
+									"raw": "{\n  \"title\": \"بکس بادی ۱/۲ اینچ پوما\",\n  \"slug\": \"puma-air-wrench-1-2\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"brandId\": \"{{brandId}}\",\n  \"shortDesc\": \"بکس بادی صنعتی با گشتاور ۶۵۰ نیوتن‌متر\",\n  \"description\": \"<p>مناسب کارگاه‌های صنعتی…</p>\",\n  \"basePrice\": 12500000,\n  \"isAmazingDeal\": false,\n  \"isActive\": true\n}",
 									"options": {
 										"raw": {
 											"language": "json"
@@ -1351,52 +1351,6 @@
 								}
 							},
 							"description": "Perm: `products.manage`. حذف نرم (soft delete) → `204`؛ محصول از فروشگاه حذف و در بک‌آفیس لیست نمی‌شود.",
-							"event": [
-								{
-									"listen": "test",
-									"script": {
-										"type": "text/javascript",
-										"exec": [
-											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
-										]
-									}
-								}
-							]
-						},
-						{
-							"name": "Replace Images",
-							"request": {
-								"method": "PUT",
-								"header": [
-									{
-										"key": "Content-Type",
-										"value": "application/json"
-									}
-								],
-								"body": {
-									"mode": "raw",
-									"raw": "{\n  \"images\": [\n    {\n      \"url\": \"https://cdn.example.com/wrench-1.jpg\",\n      \"isMain\": true,\n      \"sortOrder\": 0\n    },\n    {\n      \"url\": \"https://cdn.example.com/wrench-2.jpg\",\n      \"isMain\": false,\n      \"sortOrder\": 1\n    }\n  ]\n}",
-									"options": {
-										"raw": {
-											"language": "json"
-										}
-									}
-								},
-								"url": {
-									"raw": "{{apiBase}}/backoffice/products/{{productId}}/images",
-									"host": [
-										"{{apiBase}}"
-									],
-									"path": [
-										"backoffice",
-										"products",
-										"{{productId}}",
-										"images"
-									],
-									"query": []
-								}
-							},
-							"description": "Perm: `products.manage`. Body: `replaceImagesSchema` — کل مجموعه تصاویر جایگزین می‌شود؛ حداکثر یک `isMain`؛ `variantId` اختیاری (تصویر اختصاصی واریانت). → `ProductImageView[]`.",
 							"event": [
 								{
 									"listen": "test",
@@ -3552,6 +3506,104 @@
 							]
 						}
 					]
+				},
+				{
+					"name": "Media",
+					"item": [
+						{
+							"name": "Upload File",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media/upload",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"media",
+										"upload"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{ "key": "file", "type": "file", "src": [] },
+										{ "key": "ownerType", "value": "PRODUCT", "type": "text" },
+										{ "key": "ownerId", "value": "{{productId}}", "type": "text" },
+										{ "key": "purpose", "value": "GALLERY", "type": "text" },
+										{ "key": "alt", "value": "بکس بادی پوما", "type": "text" },
+										{ "key": "isMain", "value": "true", "type": "text" },
+										{ "key": "sortOrder", "value": "0", "type": "text" },
+										{ "key": "folder", "value": "products", "type": "text" }
+									]
+								}
+							},
+							"description": "`media.manage`. `multipart/form-data` (schema `uploadMediaSchema`): `file` (raw file, ≤ 50 MB) + optional `ownerType` (PRODUCT | PRODUCT_VARIANT | BRAND | ARTICLE | CATEGORY | TICKET_MESSAGE | REPAIR_REQUEST), `ownerId` (24-hex, must come with `ownerType`), `purpose` (GALLERY | COVER | LOGO | DATASHEET | MODEL_3D | ATTACHMENT | OG_IMAGE, default ATTACHMENT), `alt`, `isMain`, `sortOrder`, `folder`. Stores the file server-side, persists a `Media` row, and returns `MediaView` `{ id, url, key, contentType, size, originalName, kind, ownerType, ownerId, purpose, alt, isMain, sortOrder, createdAt }`. `image/jpeg` and `image/png` are re-encoded to WebP before storage (`contentType` `image/webp`, `.webp` key, `size` = encoded bytes); other types are stored unchanged. 400 no file / over 50 MB / owner missing / corrupt image; 503 S3 not configured or upstream PUT fails.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+											"try { pm.environment.set('mediaId', pm.response.json().id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Media by Owner",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media?ownerType=PRODUCT&ownerId={{productId}}",
+									"host": ["{{apiBase}}"],
+									"path": ["backoffice", "media"],
+									"query": [
+										{ "key": "ownerType", "value": "PRODUCT" },
+										{ "key": "ownerId", "value": "{{productId}}" }
+									]
+								}
+							},
+							"description": "`media.manage`. Query `ownerType` + `ownerId` (schema `listMediaQuerySchema`) → `MediaView[]` ordered by `sortOrder`."
+						},
+						{
+							"name": "Update Media",
+							"request": {
+								"method": "PATCH",
+								"header": [{ "key": "Content-Type", "value": "application/json" }],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"alt\": \"نمای جانبی\",\n  \"isMain\": true,\n  \"sortOrder\": 1,\n  \"purpose\": \"GALLERY\"\n}",
+									"options": { "raw": { "language": "json" } }
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media/{{mediaId}}",
+									"host": ["{{apiBase}}"],
+									"path": ["backoffice", "media", "{{mediaId}}"]
+								}
+							},
+							"description": "`media.manage`. Body `updateMediaSchema` (`purpose?`, `alt?`, `isMain?`, `sortOrder?` — at least one) → updated `MediaView`. Setting `isMain` clears it on the owner's other rows of the same purpose."
+						},
+						{
+							"name": "Delete Media",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media/{{mediaId}}",
+									"host": ["{{apiBase}}"],
+									"path": ["backoffice", "media", "{{mediaId}}"]
+								}
+							},
+							"description": "`media.manage`. Removes the row and best-effort deletes the object from storage. 204."
+						}
+					]
 				}
 			]
 		},
@@ -3722,7 +3774,7 @@
 									"query": []
 								}
 							},
-							"description": "Public (`@Public`). → `StorefrontProductDetailView`: واریانت‌های فعال با `effectivePrice`، تصاویر، مقادیر اتریبیوت، برند با نشان اصالت (`authenticityNote`/`isExclusiveDistributor`)، مرتبط‌های فعال، `datasheetUrl`.",
+							"description": "Public (`@Public`). → `StorefrontProductDetailView`: واریانت‌های فعال با `effectivePrice`، تصاویر، مقادیر اتریبیوت، برند با نشان اصالت (`authenticityNote`/`isExclusiveDistributor`)، مرتبط‌های فعال، `datasheetUrl`/`model3dUrl` (از `media`).",
 							"event": [
 								{
 									"listen": "test",
@@ -4076,6 +4128,46 @@
 										"type": "text/javascript",
 										"exec": [
 											"pm.test('ok',()=>pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Add Bundle To Cart",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart/bundles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart",
+										"bundles"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"bundleId\": \"{{bundleId}}\",\n  \"qty\": 1\n}"
+								}
+							},
+							"description": "`@OptionalAuth`. Body: `addCartBundleSchema` (`bundleId`, `qty`). Adds a package line; availability = min over components of floor(stock/qty). → `CartView` (line `kind:'bundle'`).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
 										]
 									}
 								}

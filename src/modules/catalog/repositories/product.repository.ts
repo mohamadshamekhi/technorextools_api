@@ -4,13 +4,14 @@ import { PrismaService } from '../../../prisma/prisma.service';
 
 const brandStub = { select: { id: true, title: true, slug: true } };
 const categoryStub = { select: { id: true, title: true, slug: true } };
-const mainImageInclude = { where: { isMain: true } };
 
-/** List/detail card row: brand + category stub + main images only. */
+// Product images/datasheets/3D models are `Media` rows (polymorphic owner) — the
+// consuming services stitch them in via `MediaRepository`, not a Prisma include.
+
+/** List/detail card row: brand + category stub. */
 const productListInclude = {
   brand: brandStub,
   category: categoryStub,
-  images: mainImageInclude,
 } satisfies Prisma.ProductInclude;
 export type ProductListRow = Prisma.ProductGetPayload<{ include: typeof productListInclude }>;
 
@@ -19,11 +20,10 @@ const productFullInclude = {
   brand: brandStub,
   category: categoryStub,
   variants: { orderBy: { createdAt: 'asc' } },
-  images: { orderBy: [{ sortOrder: 'asc' }] },
   attributeValues: { include: { attribute: true } },
   relatedTo: {
     include: {
-      related: { include: { brand: brandStub, images: mainImageInclude } },
+      related: { include: { brand: brandStub } },
     },
   },
 } satisfies Prisma.ProductInclude;
@@ -43,13 +43,12 @@ const storefrontProductInclude = {
   },
   category: categoryStub,
   variants: { where: { isActive: true }, orderBy: { createdAt: 'asc' } },
-  images: { orderBy: [{ sortOrder: 'asc' }] },
   attributeValues: { include: { attribute: true } },
   relatedTo: {
     include: {
       // active/not-deleted filtering happens in the service — Prisma (Mongo) does
       // not accept `where` on a to-one relation include.
-      related: { include: { brand: brandStub, images: mainImageInclude } },
+      related: { include: { brand: brandStub } },
     },
   },
 } satisfies Prisma.ProductInclude;
@@ -60,10 +59,10 @@ export type StorefrontProductRow = Prisma.ProductGetPayload<{
 type BrandStub = Prisma.BrandGetPayload<{ select: { id: true; title: true; slug: true } }>;
 
 /**
- * All Prisma access for the `products` collection. The `product_images`,
- * `product_attribute_values`, and `related_products` child rows are managed
- * here as part of the product aggregate — they never get repositories of
- * their own.
+ * All Prisma access for the `products` collection. The `product_attribute_values`
+ * and `related_products` child rows are managed here as part of the product
+ * aggregate — they never get repositories of their own. Product images live in
+ * the `media` collection (see `MediaRepository`).
  */
 @Injectable()
 export class ProductRepository {
@@ -97,7 +96,11 @@ export class ProductRepository {
   }
 
   create(data: Prisma.ProductCreateInput): Promise<Product> {
-    return this.prisma.product.create({ data });
+    // `deletedAt` has no @default — on Mongo an unset field is *absent*, not `null`,
+    // and Prisma's `{ deletedAt: null }` filter (used everywhere to exclude soft-deleted
+    // rows) does not match an absent field. Write it explicitly so every product is
+    // findable by every list/detail query from the moment it's created.
+    return this.prisma.product.create({ data: { deletedAt: null, ...data } });
   }
 
   update(id: string, data: Prisma.ProductUpdateInput): Promise<Product> {
@@ -116,25 +119,6 @@ export class ProductRepository {
   countByIds(ids: string[]): Promise<number> {
     if (ids.length === 0) return Promise.resolve(0);
     return this.prisma.product.count({ where: { id: { in: ids } } });
-  }
-
-  /** Replace the whole image set of a product in one transaction. */
-  async replaceImages(
-    productId: string,
-    images: Array<{ url: string; isMain: boolean; sortOrder: number; variantId?: string }>,
-  ): Promise<void> {
-    await this.prisma.$transaction([
-      this.prisma.productImage.deleteMany({ where: { productId } }),
-      this.prisma.productImage.createMany({
-        data: images.map((img) => ({
-          productId,
-          url: img.url,
-          isMain: img.isMain,
-          sortOrder: img.sortOrder,
-          ...(img.variantId ? { variantId: img.variantId } : {}),
-        })),
-      }),
-    ]);
   }
 
   /** Replace the whole attribute-value set of a product in one transaction. */

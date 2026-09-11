@@ -27,10 +27,15 @@ export const envSchema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
 
-  // SMS provider — 'console' just logs; 'melipayamak' sends via MelliPayamak's
-  // service-pattern endpoint (BaseServiceNumber). The MELIPAYAMAK_* keys below are
-  // required when SMS_PROVIDER=melipayamak (enforced in validateEnv).
+  // SMS provider — 'console' just logs; 'melipayamak' sends approved service
+  // patterns. Auth is EITHER MELIPAYAMAK_API_KEY (preferred — uses the
+  // console.melipayamak.com shared-line API) OR MELIPAYAMAK_USERNAME+PASSWORD
+  // (legacy rest.payamak-panel.com BaseServiceNumber). Enforced in validateEnv.
   SMS_PROVIDER: z.enum(['console', 'melipayamak']).default('console'),
+  MELIPAYAMAK_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
   MELIPAYAMAK_USERNAME: z
     .string()
     .optional()
@@ -41,6 +46,21 @@ export const envSchema = z.object({
     .transform((v) => (v && v.length > 0 ? v : undefined)),
   /// Numeric id of the approved OTP service pattern (بادی/پترن) — its single variable receives the code.
   MELIPAYAMAK_OTP_PATTERN_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  /// bodyId of the "order paid" pattern — 1 variable: order number. Unset → notification is logged, not sent.
+  MELIPAYAMAK_ORDER_PAID_PATTERN_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  /// bodyId of the "order status changed" pattern — 2 variables: order number, status text.
+  MELIPAYAMAK_ORDER_STATUS_PATTERN_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  /// bodyId of the "abandoned cart" reminder pattern — 0 variables.
+  MELIPAYAMAK_ABANDONED_CART_PATTERN_ID: z
     .string()
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined)),
@@ -80,6 +100,33 @@ export const envSchema = z.object({
   /// `?orderNumber=&status=` appended. Usually the storefront order-result page.
   PAYMENT_RESULT_REDIRECT_URL: z.string().url().default('http://localhost:3000/checkout/result'),
 
+  // Object storage for admin image uploads (S3-compatible: ArvanCloud, Liara, …).
+  // All five must be set to enable `POST /backoffice/media/presign`; otherwise it
+  // returns 503. Path-style addressing is used.
+  S3_ENDPOINT: z
+    .string()
+    .url()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_BUCKET: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_ACCESS_KEY_ID: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_SECRET_ACCESS_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+  S3_PUBLIC_BASE_URL: z
+    .string()
+    .url()
+    .optional()
+    .transform((v) => (v && v.length > 0 ? v : undefined)),
+
   CORS_ORIGIN: z
     .string()
     .default('http://localhost:3000')
@@ -108,11 +155,16 @@ export function validateEnv(raw: Record<string, unknown>): Env {
     throw new Error('PAYMENT_PROVIDER=zarinpal requires: ZARINPAL_MERCHANT_ID');
   }
   if (parsed.data.SMS_PROVIDER === 'melipayamak') {
-    const missing = (
-      ['MELIPAYAMAK_USERNAME', 'MELIPAYAMAK_PASSWORD', 'MELIPAYAMAK_OTP_PATTERN_ID'] as const
-    ).filter((k) => !parsed.data[k]);
-    if (missing.length > 0) {
-      throw new Error(`SMS_PROVIDER=melipayamak requires: ${missing.join(', ')}`);
+    const hasApiKey = Boolean(parsed.data.MELIPAYAMAK_API_KEY);
+    const hasUserPass =
+      Boolean(parsed.data.MELIPAYAMAK_USERNAME) && Boolean(parsed.data.MELIPAYAMAK_PASSWORD);
+    if (!hasApiKey && !hasUserPass) {
+      throw new Error(
+        'SMS_PROVIDER=melipayamak requires MELIPAYAMAK_API_KEY (preferred) or MELIPAYAMAK_USERNAME + MELIPAYAMAK_PASSWORD',
+      );
+    }
+    if (!parsed.data.MELIPAYAMAK_OTP_PATTERN_ID) {
+      throw new Error('SMS_PROVIDER=melipayamak requires: MELIPAYAMAK_OTP_PATTERN_ID');
     }
   }
   return parsed.data;

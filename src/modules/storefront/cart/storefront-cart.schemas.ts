@@ -12,6 +12,12 @@ export const addCartItemSchema = z.object({
 });
 export type AddCartItemInput = z.infer<typeof addCartItemSchema>;
 
+export const addCartBundleSchema = z.object({
+  bundleId: objectIdSchema,
+  qty: qtySchema.default(1),
+});
+export type AddCartBundleInput = z.infer<typeof addCartBundleSchema>;
+
 export const updateCartItemSchema = z.object({
   qty: qtySchema,
 });

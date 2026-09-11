@@ -23,13 +23,19 @@ import { ShippingMethodRepository } from '../../shipping/repositories/shipping-m
 import type { PreviewCheckoutInput, StartCheckoutInput } from './storefront-checkout.schemas';
 
 interface ResolvedLine extends DiscountLine {
-  variantId: string;
+  kind: 'variant' | 'bundle';
+  /** For a variant line: the variant. For a bundle line: null (see `components`). */
+  variantId: string | null;
+  bundleId: string | null;
   productTitle: string;
-  sku: string;
+  sku: string | null;
+  weightGrams: number | null;
+  /** Bundle only: the component variants and how many of each per package. */
+  components: Array<{ variantId: string; qtyPerPackage: number }>;
 }
 
 export interface CheckoutQuote {
-  lines: Array<{ variantId: string; productTitle: string; qty: number; unitPrice: number; lineTotal: number }>;
+  lines: Array<{ variantId: string | null; bundleId: string | null; productTitle: string; qty: number; unitPrice: number; lineTotal: number }>;
   subtotal: number;
   discountCode: string | null;
   discountAmount: number;
@@ -110,7 +116,7 @@ export class StorefrontCheckoutService {
       total: quote.total,
       items: lines.map((l) => ({
         variantId: l.variantId,
-        bundleId: null,
+        bundleId: l.bundleId,
         qty: l.qty,
         unitPrice: l.unitPrice,
         productTitle: l.productTitle,
@@ -175,18 +181,55 @@ export class StorefrontCheckoutService {
 
   private async loadCartOrThrow(userId: string): Promise<CartWithItems> {
     const cart = await this.carts.findActiveByUserId(userId);
-    const hasItems = cart?.items.some((i) => i.variantId !== null);
+    const hasItems = cart?.items.some((i) => i.variantId !== null || i.bundleId !== null);
     if (!cart || !hasItems) throw new BadRequestException('سبد خرید شما خالی است');
     return cart;
   }
 
   private async resolveLines(userId: string, cart: CartWithItems): Promise<ResolvedLine[]> {
-    const variantLines = cart.items.filter((i) => i.variantId !== null);
-    const variantIds = variantLines.map((i) => i.variantId as string);
+    const lines = cart.items.filter((i) => i.variantId !== null || i.bundleId !== null);
+    // Every variant that matters: direct lines + bundle components.
+    const variantIds = new Set<string>();
+    for (const item of lines) {
+      if (item.variantId) variantIds.add(item.variantId);
+      for (const bi of item.bundle?.items ?? []) variantIds.add(bi.variantId);
+    }
     const now = new Date();
-    const reserved = await this.carts.sumLiveReservations(variantIds, cart.id, now);
+    const reserved = await this.carts.sumLiveReservations([...variantIds], cart.id, now);
 
-    return variantLines.map((item) => {
+    return lines.map((item): ResolvedLine => {
+      if (item.bundle) {
+        const bundle = item.bundle;
+        if (!bundle.isActive || bundle.items.length === 0) {
+          throw new BadRequestException('یکی از پکیج‌های سبد دیگر در دسترس نیست');
+        }
+        for (const bi of bundle.items) {
+          if (!bi.variant.isActive) {
+            throw new BadRequestException(`یکی از اقلام پکیج «${bundle.title}» در دسترس نیست`);
+          }
+          const need = bi.qty * item.qty;
+          const sellable = bi.variant.stockQty - (reserved.get(bi.variantId) ?? 0);
+          if (need > sellable) {
+            throw new ConflictException(`موجودی کافی برای پکیج «${bundle.title}» نیست`);
+          }
+        }
+        return {
+          kind: 'bundle',
+          variantId: null,
+          bundleId: bundle.id,
+          productId: '__bundle__',
+          categoryId: '__bundle__',
+          qty: item.qty,
+          unitPrice: bundle.bundlePrice,
+          productTitle: bundle.title,
+          sku: null,
+          weightGrams: bundle.items.some((bi) => bi.variant.weightGrams === null)
+            ? null
+            : bundle.items.reduce((g, bi) => g + (bi.variant.weightGrams ?? 0) * bi.qty, 0),
+          components: bundle.items.map((bi) => ({ variantId: bi.variantId, qtyPerPackage: bi.qty })),
+        };
+      }
+
       const variant = item.variant;
       if (!variant || !variant.isActive || !variant.product.isActive || variant.product.deletedAt) {
         throw new BadRequestException(`یکی از اقلام سبد دیگر در دسترس نیست`);
@@ -202,13 +245,17 @@ export class StorefrontCheckoutService {
         item.qty,
       );
       return {
+        kind: 'variant',
         variantId: variant.id,
+        bundleId: null,
         productId: variant.product.id,
         categoryId: variant.product.categoryId,
         qty: item.qty,
         unitPrice,
         productTitle: variant.product.title,
         sku: variant.sku,
+        weightGrams: variant.weightGrams,
+        components: [],
       };
     });
   }
@@ -242,8 +289,16 @@ export class StorefrontCheckoutService {
       if (!method || !method.isActive) throw new BadRequestException('روش ارسال نامعتبر است');
       const netForShipping = netAfterDiscount - loyaltyRedeemAmount;
       const free = method.freeOverAmount !== null && netForShipping >= method.freeOverAmount;
-      // `by_weight` needs per-item weight we don't model yet — treated as flat `cost`.
-      shippingCost = free ? 0 : method.cost;
+      if (free) {
+        shippingCost = 0;
+      } else if (method.costType === 'by_weight' && lines.every((l) => l.weightGrams !== null)) {
+        // cost = per-kg rate × ceil(total kg); rounds any partial kg up.
+        const totalGrams = lines.reduce((g, l) => g + (l.weightGrams ?? 0) * l.qty, 0);
+        shippingCost = method.cost * Math.max(1, Math.ceil(totalGrams / 1000));
+      } else {
+        // flat, or by_weight with an unweighed line → fall back to the flat `cost`.
+        shippingCost = method.cost;
+      }
     }
 
     const total = Math.max(0, netAfterDiscount - loyaltyRedeemAmount + shippingCost);
@@ -251,6 +306,7 @@ export class StorefrontCheckoutService {
     return {
       lines: lines.map((l) => ({
         variantId: l.variantId,
+        bundleId: l.bundleId,
         productTitle: l.productTitle,
         qty: l.qty,
         unitPrice: l.unitPrice,

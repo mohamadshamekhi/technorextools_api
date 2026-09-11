@@ -17,9 +17,16 @@
 
 ## Data access at runtime
 - Only a model's own repository calls `this.prisma.<model>`. Services inject repositories.
+  **Sole documented exception:** `health.controller.ts` injects `PrismaService` directly for
+  the `$runCommandRaw({ ping: 1 })` liveness probe — it isn't tied to any model, so it has no
+  repository. Don't use this as precedent for anything else; a new prisma-calling site outside
+  `repositories/` is a bug.
 - Repositories return Prisma types or thin `X & { relation }` aliases — no HTTP-shaped views.
 - `prisma.$transaction` needs Mongo as a **replica set** (`docker-compose.yml` gives a
-  single-node one).
+  single-node one). **Use it** for any multi-step write that must be all-or-nothing or that
+  touches a shared/high-contention resource — stock decrement + order creation, order +
+  payment creation, coupon redemption count. See `.claude/rules/quality-gate.md` for the
+  current gap and the atomic-update alternative (`updateMany` with a quantity-floor `where`).
 - Don't catch Prisma errors just to remap to HTTP — `AllExceptionsFilter` already maps
   `P2002/P2025/P2003` etc. Catch only for a domain-specific message.
 - `prisma` CLI is a **runtime** dependency (prod image runs `prisma generate` / can

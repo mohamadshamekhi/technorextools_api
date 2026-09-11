@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type { Prisma, ProductImage, ProductVariant } from '@prisma/client';
+import type { Media, Prisma, ProductVariant } from '@prisma/client';
 import {
   ProductRepository,
   type ProductFullRow,
@@ -14,12 +14,18 @@ import { ProductVariantRepository } from '../../catalog/repositories/product-var
 import { AttributeGroupRepository } from '../../catalog/repositories/attribute-group.repository';
 import { CategoryRepository } from '../../catalog/repositories/category.repository';
 import { BrandRepository } from '../../catalog/repositories/brand.repository';
+import { MediaRepository } from '../../media/repositories/media.repository';
+import {
+  firstUrlOf,
+  mainImageUrlOf,
+  toGalleryImages,
+  type GalleryImage,
+} from '../../media/media.gallery';
 import type {
   CreateProductInput,
   CreateVariantInput,
   ListProductsQuery,
   ReplaceAttributeValuesInput,
-  ReplaceImagesInput,
   ReplaceRelatedInput,
   UpdateProductInput,
   UpdateProductVariantInput,
@@ -38,13 +44,7 @@ export interface ProductCardView {
   createdAt: string;
 }
 
-export interface ProductImageView {
-  id: string;
-  url: string;
-  variantId: string | null;
-  isMain: boolean;
-  sortOrder: number;
-}
+export type ProductImageView = GalleryImage;
 
 export interface ProductVariantView {
   id: string;
@@ -52,6 +52,7 @@ export interface ProductVariantView {
   colorName: string | null;
   stockQty: number;
   priceOverride: number | null;
+  weightGrams: number | null;
   isActive: boolean;
 }
 
@@ -64,6 +65,7 @@ export interface ProductDetail {
   basePrice: number;
   isAmazingDeal: boolean;
   datasheetUrl: string | null;
+  model3dUrl: string | null;
   isActive: boolean;
   deletedAt: string | null;
   category: { id: string; title: string; slug: string };
@@ -88,6 +90,7 @@ export class ProductsService {
     private readonly categories: CategoryRepository,
     private readonly brands: BrandRepository,
     private readonly attributeGroups: AttributeGroupRepository,
+    private readonly media: MediaRepository,
   ) {}
 
   async list(
@@ -104,7 +107,13 @@ export class ProductsService {
     if (query.isActive !== undefined) and.push({ isActive: query.isActive });
     if (query.isAmazingDeal !== undefined) and.push({ isAmazingDeal: query.isAmazingDeal });
     const { items, total } = await this.products.paginate({ AND: and }, query.skip, query.take);
-    return { items: items.map(toCardView), total, skip: query.skip, take: query.take };
+    const mediaByProduct = await this.galleryByProduct(items.map((p) => p.id));
+    return {
+      items: items.map((p) => toCardView(p, mediaByProduct.get(p.id) ?? [])),
+      total,
+      skip: query.skip,
+      take: query.take,
+    };
   }
 
   async getById(id: string): Promise<ProductDetail> {
@@ -112,7 +121,24 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException('محصول یافت نشد');
     }
-    return toDetail(product);
+    const media = await this.media.findProductMedia(
+      id,
+      product.variants.map((v) => v.id),
+    );
+    return toDetail(product, media);
+  }
+
+  /** Main-image lookup for a page of product cards, keyed by product id. */
+  private async galleryByProduct(ids: string[]): Promise<Map<string, Media[]>> {
+    const rows = await this.media.findByOwners('PRODUCT', ids);
+    const map = new Map<string, Media[]>();
+    for (const row of rows) {
+      if (!row.ownerId) continue;
+      const list = map.get(row.ownerId);
+      if (list) list.push(row);
+      else map.set(row.ownerId, [row]);
+    }
+    return map;
   }
 
   async create(input: CreateProductInput): Promise<ProductDetail> {
@@ -121,11 +147,11 @@ export class ProductsService {
     if (input.brandId) {
       await this.ensureBrandExists(input.brandId);
     }
-    const { brandId, ...rest } = input;
+    const { brandId, categoryId, ...rest } = input;
     const product = await this.products.create({
       ...rest,
       ...(brandId ? { brand: { connect: { id: brandId } } } : {}),
-      category: { connect: { id: input.categoryId } },
+      category: { connect: { id: categoryId } },
     });
     return this.getById(product.id);
   }
@@ -163,23 +189,6 @@ export class ProductsService {
       throw new NotFoundException('محصول یافت نشد');
     }
     await this.products.softDelete(id);
-  }
-
-  async replaceImages(id: string, input: ReplaceImagesInput): Promise<ProductImageView[]> {
-    const product = await this.products.findById(id);
-    if (!product) {
-      throw new NotFoundException('محصول یافت نشد');
-    }
-    const productVariants = await this.variants.findManyByProductId(id);
-    const variantIds = new Set(productVariants.map((v) => v.id));
-    for (const image of input.images) {
-      if (image.variantId && !variantIds.has(image.variantId)) {
-        throw new BadRequestException('تصویر به واریانتی اشاره می‌کند که به این محصول تعلق ندارد');
-      }
-    }
-    await this.products.replaceImages(id, input.images);
-    const fresh = await this.products.findByIdFull(id);
-    return fresh ? fresh.images.map(toImageView) : [];
   }
 
   async replaceAttributeValues(
@@ -234,6 +243,7 @@ export class ProductsService {
       colorName: input.colorName ?? undefined,
       stockQty: input.stockQty,
       priceOverride: input.priceOverride,
+      weightGrams: input.weightGrams,
       isActive: input.isActive,
       product: { connect: { id: productId } },
     });
@@ -252,10 +262,11 @@ export class ProductsService {
     if (input.sku && input.sku !== variant.sku) {
       await this.ensureSkuFree(input.sku);
     }
-    const { colorName, ...rest } = input;
+    const { colorName, weightGrams, ...rest } = input;
     const updated = await this.variants.update(variantId, {
       ...rest,
       ...(colorName !== undefined ? { colorName: colorName ?? null } : {}),
+      ...(weightGrams !== undefined ? { weightGrams: weightGrams ?? null } : {}),
     });
     return toVariantView(updated);
   }
@@ -287,7 +298,7 @@ export class ProductsService {
   }
 }
 
-function toCardView(product: ProductListRow): ProductCardView {
+function toCardView(product: ProductListRow, media: Media[]): ProductCardView {
   return {
     id: product.id,
     title: product.title,
@@ -301,18 +312,8 @@ function toCardView(product: ProductListRow): ProductCardView {
       slug: product.category.slug,
     },
     brand: product.brand,
-    mainImageUrl: product.images.find((img) => img.isMain)?.url ?? product.images[0]?.url ?? null,
+    mainImageUrl: mainImageUrlOf(media),
     createdAt: product.createdAt.toISOString(),
-  };
-}
-
-function toImageView(image: ProductImage): ProductImageView {
-  return {
-    id: image.id,
-    url: image.url,
-    variantId: image.variantId,
-    isMain: image.isMain,
-    sortOrder: image.sortOrder,
   };
 }
 
@@ -323,11 +324,12 @@ function toVariantView(variant: ProductVariant): ProductVariantView {
     colorName: variant.colorName,
     stockQty: variant.stockQty,
     priceOverride: variant.priceOverride,
+    weightGrams: variant.weightGrams,
     isActive: variant.isActive,
   };
 }
 
-function toDetail(product: ProductFullRow): ProductDetail {
+function toDetail(product: ProductFullRow, media: Media[]): ProductDetail {
   return {
     id: product.id,
     title: product.title,
@@ -336,12 +338,13 @@ function toDetail(product: ProductFullRow): ProductDetail {
     description: product.description,
     basePrice: product.basePrice,
     isAmazingDeal: product.isAmazingDeal,
-    datasheetUrl: product.datasheetUrl,
+    datasheetUrl: firstUrlOf(media, 'DATASHEET'),
+    model3dUrl: firstUrlOf(media, 'MODEL_3D'),
     isActive: product.isActive,
     deletedAt: product.deletedAt?.toISOString() ?? null,
     category: product.category,
     brand: product.brand,
-    images: product.images.map(toImageView),
+    images: toGalleryImages(media),
     variants: product.variants.map(toVariantView),
     attributeValues: product.attributeValues.map((v) => ({
       attributeId: v.attributeId,

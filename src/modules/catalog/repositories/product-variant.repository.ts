@@ -17,7 +17,6 @@ const variantForCartInclude = {
       basePrice: true,
       isActive: true,
       deletedAt: true,
-      images: { where: { isMain: true }, orderBy: { sortOrder: 'asc' }, take: 1 },
     },
   },
   priceTiers: { orderBy: { minQty: 'asc' } },

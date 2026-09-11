@@ -4,10 +4,11 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { JsonLogger } from './common/logging/json-logger';
 import type { Env } from './config/env.schema';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  const app = await NestFactory.create(AppModule, { logger: new JsonLogger() });
   const config = app.get<ConfigService<Env, true>>(ConfigService);
 
   app.use(helmet());

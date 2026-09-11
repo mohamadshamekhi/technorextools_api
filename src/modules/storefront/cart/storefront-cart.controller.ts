@@ -13,8 +13,10 @@ import { OptionalAuth } from '../../../common/decorators/optional-auth.decorator
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
 import {
+  addCartBundleSchema,
   addCartItemSchema,
   updateCartItemSchema,
+  type AddCartBundleInput,
   type AddCartItemInput,
   type UpdateCartItemInput,
 } from './storefront-cart.schemas';
@@ -51,6 +53,16 @@ export class StorefrontCartController {
     @Body(new ZodValidationPipe(addCartItemSchema)) body: AddCartItemInput,
   ): Promise<CartView> {
     return this.cart.addItem(this.owner(user, token), body.variantId, body.qty);
+  }
+
+  @OptionalAuth()
+  @Post('bundles')
+  addBundle(
+    @CurrentUser() user: AuthenticatedUser | undefined,
+    @Headers('x-cart-token') token: string | undefined,
+    @Body(new ZodValidationPipe(addCartBundleSchema)) body: AddCartBundleInput,
+  ): Promise<CartView> {
+    return this.cart.addBundle(this.owner(user, token), body.bundleId, body.qty);
   }
 
   @OptionalAuth()

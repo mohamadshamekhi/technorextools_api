@@ -19,6 +19,7 @@ export const updateInventoryVariantSchema = z
   .object({
     stockQty: z.coerce.number().int().min(0, 'موجودی نمی‌تواند منفی باشد'),
     priceOverride: tomanSchema.nullable(),
+    weightGrams: z.coerce.number().int().min(0).nullable(),
     isActive: z.boolean(),
   })
   .partial()

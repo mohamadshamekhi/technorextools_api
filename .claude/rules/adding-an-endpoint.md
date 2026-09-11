@@ -2,6 +2,10 @@
 
 Follow in order. Stop and ask (convention 4) if any boundary is unclear.
 
+0. **Pattern-match first.** Grep 1-2 existing endpoints in the same/nearest domain for
+   response envelope shape, error type per failure case, and naming before writing anything —
+   see `.claude/rules/quality-gate.md`. The contract is whatever the code + Postman collection
+   already do, not a generic REST convention.
 1. **Pick the consumer & module.** `backoffice` (admin) or `storefront` (public/customer)?
    Path `src/modules/<consumer>/<domain>/`. A domain both apps need → two controllers over
    one shared service. Only `auth` sits at `/api/v1` root.

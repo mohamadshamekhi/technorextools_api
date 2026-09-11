@@ -4,7 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 
 const withProduct = {
   product: {
-    include: { brand: { select: { title: true, slug: true } }, images: { where: { isMain: true }, take: 1 } },
+    include: { brand: { select: { title: true, slug: true } } },
   },
 } satisfies Prisma.WishlistItemInclude;
 

@@ -3,25 +3,26 @@
 #
 #   docker compose up -d
 #
+# Uses the official `mongo` image; the healthcheck self-initiates the replica
+# set on first start (the old bitnami/mongodb image was pulled from Docker Hub).
 services:
   mongo:
-    image: bitnami/mongodb:7.0
+    image: mongo:7.0
     ports:
       - '27017:27017'
-    environment:
-      MONGODB_REPLICA_SET_MODE: primary
-      MONGODB_REPLICA_SET_NAME: rs0
-      MONGODB_REPLICA_SET_KEY: local-dev-replica-key
-      MONGODB_ROOT_PASSWORD: ''
-      ALLOW_EMPTY_PASSWORD: 'yes'
-      MONGODB_ADVERTISED_HOSTNAME: localhost
+    command: ['--replSet', 'rs0', '--bind_ip_all']
     volumes:
-      - mongo-data:/bitnami/mongodb
+      - mongo-data:/data/db
     healthcheck:
-      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: >-
+        mongosh --quiet --eval "
+          try { rs.status().ok }
+          catch { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }) }
+        "
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
 
   # Optional — only needed to exercise the multi-instance rate-limiter locally.
   # Set REDIS_URL=redis://localhost:6379 to use it.

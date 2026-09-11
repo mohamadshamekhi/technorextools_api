@@ -31,6 +31,6 @@ import { RefreshTokenRepository } from './repositories/refresh-token.repository'
     RefreshTokenRepository,
     OtpChallengeRepository,
   ],
-  exports: [AuthService],
+  exports: [AuthService, RefreshTokenRepository, OtpChallengeRepository],
 })
 export class AuthModule {}

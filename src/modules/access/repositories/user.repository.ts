@@ -29,8 +29,18 @@ export class UserRepository {
     return this.prisma.user.findUnique({ where: { referralCode } });
   }
 
+  /** Uniqueness check for a non-null email (no DB unique index — see schema). */
+  findByEmail(email: string): Promise<User | null> {
+    return this.prisma.user.findFirst({ where: { email } });
+  }
+
   create(data: Prisma.UserCreateInput): Promise<UserWithRole> {
-    return this.prisma.user.create({ data, include: { role: true } });
+    // Keep `email` truly absent when empty — never persist `null`/`''` (there is
+    // no DB unique index, but a stored `null` is still meaningless data).
+    const { email, ...rest } = data;
+    const clean: Prisma.UserCreateInput =
+      typeof email === 'string' && email.trim() !== '' ? { ...rest, email: email.trim() } : rest;
+    return this.prisma.user.create({ data: clean, include: { role: true } });
   }
 
   update(id: string, data: Prisma.UserUpdateInput): Promise<UserWithRole> {

@@ -6,6 +6,7 @@ import type { CategoryRepository } from '../../catalog/repositories/category.rep
 import type { ProductRepository } from '../../catalog/repositories/product.repository';
 import type { CommentRepository } from '../../catalog/repositories/comment.repository';
 import type { BundleRepository } from '../../bundles/repositories/bundle.repository';
+import type { MediaRepository } from '../../media/repositories/media.repository';
 
 const cat = (id: string, parentId: string | null, slug = id): Category => ({
   id,
@@ -40,8 +41,12 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
     findMany: overrides.bundleFindMany ?? jest.fn().mockResolvedValue([]),
     findBySlug: overrides.bundleFindBySlug ?? jest.fn().mockResolvedValue(null),
   } as unknown as BundleRepository;
+  const media = {
+    findByOwners: overrides.mediaFindByOwners ?? jest.fn().mockResolvedValue([]),
+    findProductMedia: overrides.mediaFindProductMedia ?? jest.fn().mockResolvedValue([]),
+  } as unknown as MediaRepository;
   return {
-    service: new StorefrontCatalogService(categories, brands, products, comments, bundles),
+    service: new StorefrontCatalogService(categories, brands, products, comments, bundles, media),
     products,
     paginate,
   };
@@ -230,5 +235,39 @@ describe('StorefrontCatalogService', () => {
     expect(detail.related).toHaveLength(1);
     expect(detail.related[0]!.slug).toBe('related-p2');
     expect(detail.brand?.isExclusiveDistributor).toBe(true);
+  });
+
+  it('derives datasheet / model3d / images from media rows', async () => {
+    const { service } = make({
+      findBySlugForStorefront: jest.fn().mockResolvedValue({
+        id: 'p1',
+        title: 't',
+        slug: 'air-wrench',
+        shortDesc: null,
+        description: null,
+        basePrice: 1,
+        isAmazingDeal: false,
+        isActive: true,
+        deletedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        category: { id: 'c1', title: 'c', slug: 'c' },
+        brand: null,
+        variants: [],
+        attributeValues: [],
+        relatedTo: [],
+      }),
+      mediaFindProductMedia: jest.fn().mockResolvedValue([
+        { id: 'm1', url: 'https://x/g.jpg', alt: null, isMain: true, sortOrder: 0, purpose: 'GALLERY', ownerType: 'PRODUCT', ownerId: 'p1' },
+        { id: 'm2', url: 'https://x/d.pdf', alt: null, isMain: false, sortOrder: 0, purpose: 'DATASHEET', ownerType: 'PRODUCT', ownerId: 'p1' },
+        { id: 'm3', url: 'https://x/m.glb', alt: null, isMain: false, sortOrder: 0, purpose: 'MODEL_3D', ownerType: 'PRODUCT', ownerId: 'p1' },
+      ]),
+    });
+    const detail = await service.productDetail('air-wrench');
+    expect(detail.datasheetUrl).toBe('https://x/d.pdf');
+    expect(detail.model3dUrl).toBe('https://x/m.glb');
+    expect(detail.images).toEqual([
+      { id: 'm1', url: 'https://x/g.jpg', alt: null, isMain: true, sortOrder: 0, variantId: null },
+    ]);
   });
 });

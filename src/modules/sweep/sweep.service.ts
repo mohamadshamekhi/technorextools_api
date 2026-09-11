@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { SmsService } from '../../common/sms/sms.service';
 import type { Env } from '../../config/env.schema';
 import { UserRepository } from '../access/repositories/user.repository';
+import { OtpChallengeRepository } from '../auth/repositories/otp-challenge.repository';
+import { RefreshTokenRepository } from '../auth/repositories/refresh-token.repository';
 import { AbandonedCartLogRepository } from '../cart/repositories/abandoned-cart-log.repository';
 import { CartRepository } from '../cart/repositories/cart.repository';
 import { AppSettingsService } from '../content/app-settings.service';
@@ -38,6 +40,8 @@ export class SweepService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly carts: CartRepository,
     private readonly abandonedLogs: AbandonedCartLogRepository,
     private readonly users: UserRepository,
+    private readonly otpChallenges: OtpChallengeRepository,
+    private readonly refreshTokens: RefreshTokenRepository,
     private readonly settings: AppSettingsService,
     private readonly sms: SmsService,
     private readonly config: ConfigService<Env, true>,
@@ -60,6 +64,7 @@ export class SweepService implements OnApplicationBootstrap, OnModuleDestroy {
     try {
       await this.expireStalePendingOrders();
       await this.logAbandonedCarts();
+      await this.purgeAuthArtifacts();
     } catch (err) {
       this.logger.error(`tick failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -76,6 +81,20 @@ export class SweepService implements OnApplicationBootstrap, OnModuleDestroy {
     }
   }
 
+  private lastAuthPurge = 0;
+
+  /** Hourly: drop OTP challenges and refresh tokens dead for more than a day. */
+  private async purgeAuthArtifacts(): Promise<void> {
+    if (Date.now() - this.lastAuthPurge < 3_600_000) return;
+    this.lastAuthPurge = Date.now();
+    const cutoff = new Date(Date.now() - 86_400_000);
+    const [otp, tokens] = await Promise.all([
+      this.otpChallenges.deleteExpiredBefore(cutoff),
+      this.refreshTokens.deleteDeadBefore(cutoff),
+    ]);
+    if (otp || tokens) this.logger.log(`purged ${otp} otp challenges, ${tokens} refresh tokens`);
+  }
+
   private async logAbandonedCarts(): Promise<void> {
     const hours = await this.settings.getNumber('abandoned_cart_hours');
     const cutoff = new Date(Date.now() - hours * 3_600_000);
@@ -86,8 +105,9 @@ export class SweepService implements OnApplicationBootstrap, OnModuleDestroy {
       if (cart.userId) {
         const user = await this.users.findById(cart.userId);
         if (user?.mobile) {
+          const itemCount = cart.items.reduce((n, i) => n + i.qty, 0);
           try {
-            await this.sms.send(user.mobile, 'سبد خرید شما در فروشگاه ابزار منتظر تکمیل است.');
+            await this.sms.sendTemplate(user.mobile, 'abandoned_cart', [String(itemCount)]);
             await this.abandonedLogs.markNotified(log.id);
           } catch {
             /* best-effort */

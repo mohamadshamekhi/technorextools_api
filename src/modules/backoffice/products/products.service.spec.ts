@@ -6,6 +6,7 @@ import type { BrandRepository } from '../../catalog/repositories/brand.repositor
 import type { CategoryRepository } from '../../catalog/repositories/category.repository';
 import type { ProductRepository } from '../../catalog/repositories/product.repository';
 import type { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
+import type { MediaRepository } from '../../media/repositories/media.repository';
 
 const productRow = (over: Partial<Product> = {}): Product => ({
   id: 'p1',
@@ -17,7 +18,6 @@ const productRow = (over: Partial<Product> = {}): Product => ({
   description: null,
   basePrice: 1_000_000,
   isAmazingDeal: false,
-  datasheetUrl: null,
   isActive: true,
   deletedAt: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -36,7 +36,6 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
     countByBrandId: jest.fn().mockResolvedValue(0),
     countByIds: overrides.countByIds ?? jest.fn().mockResolvedValue(0),
     paginate: jest.fn().mockResolvedValue({ items: [], total: 0 }),
-    replaceImages: jest.fn().mockResolvedValue(undefined),
     replaceAttributeValues: jest.fn().mockResolvedValue(undefined),
     replaceRelated: jest.fn().mockResolvedValue(undefined),
   } as unknown as ProductRepository;
@@ -66,8 +65,12 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
         },
       ]),
   } as unknown as AttributeGroupRepository;
+  const media = {
+    findByOwners: jest.fn().mockResolvedValue([]),
+    findProductMedia: jest.fn().mockResolvedValue([]),
+  } as unknown as MediaRepository;
   return {
-    service: new ProductsService(products, variants, categories, brands, attributeGroups),
+    service: new ProductsService(products, variants, categories, brands, attributeGroups, media),
     products,
     variants,
   };
@@ -81,7 +84,6 @@ const createInput = {
   description: null,
   basePrice: 1_000_000,
   isAmazingDeal: false,
-  datasheetUrl: null,
   isActive: true,
 };
 
@@ -103,6 +105,18 @@ describe('ProductsService', () => {
     );
   });
 
+  it('sends a Prisma-shaped create payload — relations connected, no scalar FK keys', async () => {
+    const { service, products } = make();
+    // getById after create throws (findByIdFull → null); we only care about the create call
+    await service.create({ ...createInput, brandId: 'b1' }).catch(() => undefined);
+    expect(products.create).toHaveBeenCalledTimes(1);
+    const arg = (products.create as jest.Mock).mock.calls[0][0];
+    expect(arg.category).toEqual({ connect: { id: 'c1' } });
+    expect(arg.brand).toEqual({ connect: { id: 'b1' } });
+    expect(arg).not.toHaveProperty('categoryId');
+    expect(arg).not.toHaveProperty('brandId');
+  });
+
   it('rejects a variant SKU that is already taken', async () => {
     const { service } = make({
       findBySku: jest.fn().mockResolvedValue({ id: 'v-other', sku: 'AW-RED' }),
@@ -113,6 +127,7 @@ describe('ProductsService', () => {
         colorName: 'قرمز',
         stockQty: 5,
         priceOverride: null,
+        weightGrams: null,
         isActive: true,
       }),
     ).rejects.toBeInstanceOf(ConflictException);

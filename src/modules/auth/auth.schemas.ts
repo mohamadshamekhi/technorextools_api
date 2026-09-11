@@ -8,7 +8,14 @@ export const mobileSchema = z
 
 export const otpRequestSchema = z.object({
   mobile: mobileSchema,
-  referralCode: z.string().trim().min(4).max(16).optional(),
+  referralCode: z
+    .string()
+    .trim()
+    .min(4)
+    .max(16)
+    .optional()
+    .nullable()
+    .transform((v) => v ?? undefined),
 });
 export type OtpRequestInput = z.infer<typeof otpRequestSchema>;
 
@@ -19,7 +26,14 @@ export const otpVerifySchema = z.object({
     .trim()
     .regex(/^\d{5}$/, 'کد باید ۵ رقم باشد'),
   /** Optional guest cart token (`X-Cart-Token`) to merge into the user's cart on login. */
-  cartToken: z.string().trim().min(8).max(64).optional(),
+  cartToken: z
+    .string()
+    .trim()
+    .min(8)
+    .max(64)
+    .optional()
+    .nullable()
+    .transform((v) => v ?? undefined),
 });
 export type OtpVerifyInput = z.infer<typeof otpVerifySchema>;
 

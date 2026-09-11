@@ -58,6 +58,9 @@ export class UsersService {
     if (await this.users.findByMobile(mobile)) {
       throw new BadRequestException('کاربری با این شماره موبایل وجود دارد');
     }
+    if (input.email && (await this.users.findByEmail(input.email))) {
+      throw new BadRequestException('کاربری با این ایمیل وجود دارد');
+    }
     const user = await this.users.create({
       mobile,
       fullName: input.fullName,
@@ -83,6 +86,12 @@ export class UsersService {
       const role = await this.roles.findById(input.roleId);
       if (!role) {
         throw new BadRequestException('نقش انتخاب‌شده وجود ندارد');
+      }
+    }
+    if (input.email) {
+      const clash = await this.users.findByEmail(input.email);
+      if (clash && clash.id !== id) {
+        throw new BadRequestException('کاربری با این ایمیل وجود دارد');
       }
     }
     const { roleId, ...rest } = input;

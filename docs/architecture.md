@@ -14,6 +14,8 @@ src/
 ├── main.ts                       # bootstrap: helmet, CORS, setGlobalPrefix(API_PREFIX) excl. health, shutdown hooks, process-level handlers
 ├── app.module.ts                 # wires modules + 3 global guards (Throttler → JwtAuth → Permissions) + AllExceptionsFilter
 ├── config/                       # env.schema.ts (Zod process.env + validateEnv), config.module.ts (@Global)
+├── common/logging/               # JsonLogger (LoggerService — JSON lines in production) set in main.ts · HttpLoggerInterceptor (one line per request)
+├── common/payment/               # PaymentProvider port · FakePaymentProvider / ZarinpalPaymentProvider · PaymentModule (@Global, by PAYMENT_PROVIDER)
 ├── prisma/                       # prisma.service.ts (lifecycle), prisma.module.ts (@Global) — the only place PrismaClient is instantiated
 ├── common/
 │   ├── pipes/zod-validation.pipe.ts       # new ZodValidationPipe(schema) → 400 { message, fieldErrors }
@@ -38,7 +40,7 @@ src/
     ├── payment/                 # ROOT — PaymentCallbackController: GET /api/v1/payment/callback (@Public, gateway return → verify → 302 redirect)
     ├── health/                  # SHARED — GET /health — @Public, bounded Mongo ping
     ├── catalog/                 # @Global — catalog domain core (repositories only, no controllers)
-    │   └── repositories/        #   category · attribute-group · attribute · brand · product (+ images/attribute-values/related as aggregate children) · product-variant (+ price-tiers)
+    │   └── repositories/        #   category · attribute-group · attribute · brand · product (+ attribute-values/related as aggregate children) · product-variant (+ price-tiers). Product images/datasheet/3D live in `media` — stitched in by services via MediaRepository.
     ├── cart/                    # @Global — cart domain core: CartRepository (+ CartItem as aggregate child) · cart.pricing.ts (price-tier resolution). Shared by storefront/cart and (later) checkout
     ├── content/                 # @Global — content core: article · branch · seo-meta · site-setting repos + AppSettingsService (typed settings + defaults)
     ├── shipping/                # @Global — shipping core: shipping-method.repository.ts
@@ -52,13 +54,14 @@ src/
     ├── orders/                  # @Global — orders core: order (+ order_items, order_status_history) · payment repos + OrdersService (lifecycle: stock/loyalty/referral/cart on status change)
     ├── support/                 # @Global — support core: ticket.repository.ts (+ ticket_messages) + ticket.view.ts
     ├── admin-log/               # @Global — admin-action-log.repository.ts + AdminLogInterceptor (APP_INTERCEPTOR; logs mutating /backoffice/* requests)
-    ├── sweep/                   # SweepService — in-process setInterval (60s): expire stale pending orders + log abandoned carts
+    ├── sweep/                   # SweepService — in-process setInterval (60s): expire stale pending orders · log abandoned carts · hourly purge of dead otp_challenges / refresh_tokens
+    ├── media/                   # @Global — MediaService + MediaRepository + BackofficeMediaController. POST/GET/PATCH/DELETE /backoffice/media (media.manage, multipart ≤ 50 MB); buffers the file, PUTs it to S3 server-side via dependency-free SigV4 presigned PUT (s3-presigner.ts), persists a polymorphic Media row (ownerType+ownerId+purpose). Exports MediaRepository for catalog/content services to stitch galleries.
     ├── backoffice/
     │   ├── users/               #   BackofficeUsersController — @RequirePermissions('users.view'/'users.manage'); uses access's UserRepository/RoleRepository
     │   ├── access/              #   BackofficeAccessController — @RequirePermissions('roles.manage'); role CRUD via RoleRepository/PermissionRepository
     │   ├── categories/          #   BackofficeCategoriesController — categories.view/manage; category tree + attribute groups + attributes
     │   ├── brands/              #   BackofficeBrandsController — brands.manage (no `.view` code exists)
-    │   ├── products/            #   BackofficeProductsController — products.view/manage; product + images (PUT replace) + attribute-values + related + variant create/update
+    │   ├── products/            #   BackofficeProductsController — products.view/manage; product + attribute-values + related + variant create/update (images via /backoffice/media/*)
     │   ├── inventory/           #   BackofficeInventoryController — inventory.manage; variant stock/price + price tiers (deliberately NOT under products.manage)
     │   ├── orders/              #   BackofficeOrdersController (orders.view/manage) + BackofficePaymentsController (payments.view)
     │   ├── shipping/            #   BackofficeShippingController — shipping.manage; shipping-method CRUD
@@ -157,5 +160,8 @@ Rules for new code:
 - `prisma.$transaction` (e.g. `UserRepository.paginate`) needs Mongo running as a **replica
   set**; `docker-compose.yml` provides a single-node one. Money is stored as **integer Toman**.
 - Relations are references, not joins — watch `include` depth and N+1.
+- A `@unique` on an **optional** field is non-sparse on the Mongo connector: a second row with
+  the field absent/null collides. For those (e.g. `User.email`) drop `@unique` and enforce
+  uniqueness among non-null values in the service (`findByEmail` → `Conflict`/`BadRequest`).
 - `prisma` (CLI) is a **runtime** dependency, not dev — the production image runs
   `prisma generate` via `pnpm install --prod` and can run `prisma db push` on deploy.

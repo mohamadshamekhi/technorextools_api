@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ProductRepository } from '../../catalog/repositories/product.repository';
 import { WishlistRepository } from '../../wishlist/repositories/wishlist.repository';
+import { MediaRepository } from '../../media/repositories/media.repository';
+import { mainImageUrlOf } from '../../media/media.gallery';
 
 export interface WishlistItemView {
   productId: string;
@@ -17,10 +19,15 @@ export class StorefrontWishlistService {
   constructor(
     private readonly wishlist: WishlistRepository,
     private readonly products: ProductRepository,
+    private readonly media: MediaRepository,
   ) {}
 
   async list(userId: string): Promise<WishlistItemView[]> {
     const rows = await this.wishlist.findByUser(userId);
+    const mediaRows = await this.media.findByOwners(
+      'PRODUCT',
+      rows.map((r) => r.productId),
+    );
     return rows.map((r) => ({
       productId: r.productId,
       title: r.product.title,
@@ -29,7 +36,7 @@ export class StorefrontWishlistService {
       brand: r.product.brand
         ? { title: r.product.brand.title, slug: r.product.brand.slug }
         : null,
-      mainImageUrl: r.product.images[0]?.url ?? null,
+      mainImageUrl: mainImageUrlOf(mediaRows.filter((m) => m.ownerId === r.productId)),
       addedAt: r.createdAt,
     }));
   }

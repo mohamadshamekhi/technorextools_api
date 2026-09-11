@@ -62,6 +62,38 @@ job releases lapsed reservations.
 `stock_hold_minutes`(10) · `loyalty_points_per_toman`(0.001) · `loyalty_redeem_max_percent`(50) ·
 `referral_reward_points`(5000) · `abandoned_cart_hours`(24) · `site_title`.
 
-**Deferred:** structured logging (pino) · sweep for expired `otp_challenges` / `refresh_tokens` ·
-refresh-token rotation · image upload infrastructure (S3/MinIO) · 3D product viewer ·
-`by_weight` shipping (needs per-product weight) · bundle lines in the cart/checkout.
+**Also built (second pass):**
+
+- **structured logging** — `JsonLogger` (`common/logging`, dependency-free; JSON lines in
+  `production`, pretty otherwise) set in `main.ts`; `HttpLoggerInterceptor` logs one line per request.
+- **refresh-token rotation + reuse detection** — `/auth/refresh` rotates and, if an already-rotated
+  token is replayed, revokes the whole family. Sweep purges dead `otp_challenges` / `refresh_tokens`
+  hourly.
+- **MelliPayamak transactional SMS** — `SmsService.sendTemplate(mobile, template, vars)` +
+  `MELIPAYAMAK_{ORDER_PAID,ORDER_STATUS,ABANDONED_CART}_PATTERN_ID`; unset pattern → logged not sent.
+- **`by_weight` shipping** — `ProductVariant.weightGrams` (nullable); cost = `method.cost` ×
+  ceil(total kg), falls back to flat when any line is unweighed.
+- **bundles in cart & checkout** — `POST /storefront/cart/bundles`; a bundle line reserves and
+  decrements every component variant (`qtyPerPackage × packages`); availability = min component
+  packages. Bundles never match product/category discount targets but count toward the cart total.
+- **media** — one polymorphic `Media` collection for every uploaded asset (images + documents).
+  `POST /api/v1/backoffice/media/upload` (`media.manage`, `multipart/form-data`: `file` ≤ 50 MB +
+  optional `ownerType`/`ownerId`/`purpose`/`alt`/`isMain`/`sortOrder`/`folder`). The API buffers the
+  file, PUTs it to S3 server-side via a dependency-free SigV4 presigned PUT (`x-amz-acl:
+  public-read`), and persists a `Media` row; returns `MediaView`. Also `GET /backoffice/media?
+  ownerType&ownerId`, `PATCH /backoffice/media/:id`, `DELETE /backoffice/media/:id` (best-effort S3
+  delete). Needs the five `S3_*` env vars (503 if unset or the upstream PUT fails). `ownerType` ∈
+  PRODUCT · PRODUCT_VARIANT · BRAND · ARTICLE · CATEGORY · TICKET_MESSAGE · REPAIR_REQUEST;
+  `purpose` ∈ GALLERY · COVER · LOGO · DATASHEET · MODEL_3D · ATTACHMENT · OG_IMAGE.
+  - Phase 1 wired: product gallery + datasheet + 3D model. The old `ProductImage` model and
+    `Product.datasheetUrl`/`model3dUrl` columns are gone; catalog/cart/wishlist services stitch
+    images from `MediaRepository` (`@Global`). `PUT /backoffice/products/:id/images` removed —
+    manage images via `/backoffice/media/*`.
+  - Phase 2 (not yet migrated): `Brand.logoUrl`, `Article.coverImage`/`ogImage`,
+    `TicketMessage.attachmentUrl`, repair attachments.
+- **3D viewer** — a product's `MODEL_3D` `Media` row (glTF/GLB URL) surfaced as `model3dUrl` in the
+  storefront product detail and backoffice product detail.
+
+**Deferred:** live gateway / SMS credentials + real e2e against a gateway · leader-locked scheduler
+for multi-instance (current sweep is idempotent but runs on every instance) · replacing `JsonLogger`
+with pino once it can be installed · S3 delete of orphaned objects.

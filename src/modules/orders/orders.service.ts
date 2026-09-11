@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
-import { SmsService } from '../../common/sms/sms.service';
+import { SmsService, type SmsTemplate } from '../../common/sms/sms.service';
 import { CartRepository } from '../cart/repositories/cart.repository';
 import { ProductVariantRepository } from '../catalog/repositories/product-variant.repository';
+import { BundleRepository } from '../bundles/repositories/bundle.repository';
 import { AppSettingsService } from '../content/app-settings.service';
 import { DiscountRepository } from '../discounts/repositories/discount.repository';
 import { DiscountUsageRepository } from '../discounts/repositories/discount-usage.repository';
@@ -41,6 +42,7 @@ export class OrdersService {
     private readonly orders: OrderRepository,
     private readonly payments: PaymentRepository,
     private readonly variants: ProductVariantRepository,
+    private readonly bundles: BundleRepository,
     private readonly carts: CartRepository,
     private readonly discounts: DiscountRepository,
     private readonly discountUsages: DiscountUsageRepository,
@@ -71,9 +73,7 @@ export class OrdersService {
       return fresh ?? order;
     }
 
-    for (const item of order.items) {
-      if (item.variantId) await this.variants.adjustStock(item.variantId, -item.qty);
-    }
+    await this.adjustOrderStock(order, -1);
 
     const pending = await this.payments.findLatestPendingForOrder(order.id);
     if (pending) await this.payments.markSuccess(pending.id, refId);
@@ -92,7 +92,7 @@ export class OrdersService {
     });
     // After the status flip: exactly 1 order is now in the paid family → this is the first.
     await this.grantReferralRewardIfFirstPaid(order.userId);
-    void this.notify(order.userId, `سفارش ${order.orderNumber} با موفقیت پرداخت شد.`);
+    void this.notify(order.userId, 'order_paid', [order.orderNumber]);
     return paid;
   }
 
@@ -134,17 +134,29 @@ export class OrdersService {
       throw new BadRequestException(`تغییر وضعیت از ${order.status} به ${next} مجاز نیست`);
     }
     if (next === OrderStatus.cancelled && PAID_FAMILY.includes(order.status)) {
-      for (const item of order.items) {
-        if (item.variantId) await this.variants.adjustStock(item.variantId, item.qty);
-      }
+      await this.adjustOrderStock(order, 1);
       await this.loyalty.refundRedemption(order.userId, order.id);
     }
     const updated = await this.orders.setStatus(order.id, next, {
       changedByUserId: adminUserId,
       note,
     });
-    void this.notify(order.userId, `وضعیت سفارش ${order.orderNumber}: ${statusFa(next)}`);
+    void this.notify(order.userId, 'order_status', [order.orderNumber, statusFa(next)]);
     return updated;
+  }
+
+  /** Move stock for every order line. `sign` = -1 to consume (on paid), +1 to restock (on cancel). */
+  private async adjustOrderStock(order: OrderDetailRow, sign: 1 | -1): Promise<void> {
+    for (const item of order.items) {
+      if (item.variantId) {
+        await this.variants.adjustStock(item.variantId, sign * item.qty);
+      } else if (item.bundleId) {
+        const bundle = await this.bundles.findById(item.bundleId);
+        for (const bi of bundle?.items ?? []) {
+          await this.variants.adjustStock(bi.variantId, sign * bi.qty * item.qty);
+        }
+      }
+    }
   }
 
   private async grantReferralRewardIfFirstPaid(userId: string): Promise<void> {
@@ -170,10 +182,10 @@ export class OrdersService {
     }
   }
 
-  private async notify(userId: string, message: string): Promise<void> {
+  private async notify(userId: string, template: SmsTemplate, vars: string[]): Promise<void> {
     try {
       const user = await this.users.findById(userId);
-      if (user?.mobile) await this.sms.send(user.mobile, message);
+      if (user?.mobile) await this.sms.sendTemplate(user.mobile, template, vars);
     } catch (err) {
       this.logger.warn(`sms notify failed: ${err instanceof Error ? err.message : String(err)}`);
     }

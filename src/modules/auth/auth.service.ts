@@ -1,7 +1,8 @@
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash, randomBytes } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import type { Env } from '../../config/env.schema';
 import { RoleRepository } from '../access/repositories/role.repository';
 import { UserRepository, type UserWithRole } from '../access/repositories/user.repository';
@@ -76,7 +77,13 @@ export class AuthService {
 
   async refresh(rawToken: string): Promise<Omit<AuthResult, 'isNewUser'>> {
     const record = await this.refreshTokens.findByHash(sha256(rawToken));
-    if (!record || record.revokedAt || record.expiresAt < new Date() || !record.user.isActive) {
+    if (!record || record.expiresAt < new Date() || !record.user.isActive) {
+      throw new UnauthorizedException('نشست نامعتبر است');
+    }
+    // Reuse of an already-rotated token → likely theft: revoke the whole family.
+    if (record.revokedAt) {
+      await this.refreshTokens.revokeAllForUser(record.userId);
+      this.logger.warn(`refresh-token reuse detected for user ${record.userId} — family revoked`);
       throw new UnauthorizedException('نشست نامعتبر است');
     }
     await this.refreshTokens.revoke(record.id);
@@ -102,6 +109,12 @@ export class AuthService {
     if (!user || !user.isActive) {
       throw new UnauthorizedException('حساب کاربری غیرفعال است');
     }
+    if (patch.email && patch.email !== user.email) {
+      const clash = await this.users.findByEmail(patch.email);
+      if (clash && clash.id !== userId) {
+        throw new ConflictException('این ایمیل قبلاً ثبت شده است');
+      }
+    }
     const updated = await this.users.update(userId, {
       ...(patch.fullName !== undefined ? { fullName: patch.fullName } : {}),
       ...(patch.email !== undefined ? { email: patch.email } : {}),
@@ -126,8 +139,15 @@ export class AuthService {
           role: { connect: { id: role.id } },
         });
       } catch (err) {
-        // Retry only on a referralCode collision; give up after a few tries.
-        if (attempt === 4) throw err;
+        // Retry ONLY on a referralCode uniqueness collision — anything else
+        // (and the final attempt) propagates so the request fails honestly.
+        const target = (err as { meta?: { target?: unknown } })?.meta?.target;
+        const targetText = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
+        const isReferralClash =
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          targetText.includes('referralCode');
+        if (attempt === 4 || !isReferralClash) throw err;
       }
     }
 

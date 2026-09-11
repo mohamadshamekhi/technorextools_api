@@ -32,25 +32,18 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    services:
-      mongo:
-        image: bitnami/mongodb:7.0
-        ports: ['27017:27017']
-        env:
-          MONGODB_REPLICA_SET_MODE: primary
-          MONGODB_REPLICA_SET_NAME: rs0
-          MONGODB_REPLICA_SET_KEY: ci-replica-set-key
-          ALLOW_EMPTY_PASSWORD: 'yes'
-          MONGODB_ADVERTISED_HOSTNAME: localhost
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
-          --health-interval 10s --health-timeout 5s --health-retries 15 --health-start-period 40s
     env:
       DATABASE_URL: mongodb://localhost:27017/abzar_test?replicaSet=rs0
       JWT_SECRET: ci-only-secret-value-at-least-32-characters
       RUN_E2E: '1'
     steps:
       - uses: actions/checkout@v4
+      # Spins up mongo:7 as a single-node replica set (service containers can't
+      # pass --replSet, so use this action instead of a `services:` block).
+      - uses: supercharge/mongodb-github-action@1.11.0
+        with:
+          mongodb-version: '7.0'
+          mongodb-replica-set: rs0
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:

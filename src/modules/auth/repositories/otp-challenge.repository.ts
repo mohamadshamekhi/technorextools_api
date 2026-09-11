@@ -11,10 +11,16 @@ export class OtpChallengeRepository {
     return this.prisma.otpChallenge.count({ where: { mobile, createdAt: { gte: since } } });
   }
 
+  /**
+   * Unconsumed = `consumedAt` unset. On the Mongo connector `{ consumedAt: null }`
+   * does not match documents where the field was never written, so match on `isSet`.
+   */
+  private static readonly UNCONSUMED = { consumedAt: { isSet: false } } as const;
+
   /** The most recent still-usable (unconsumed, unexpired) challenge, if any. */
   findActive(mobile: string): Promise<OtpChallenge | null> {
     return this.prisma.otpChallenge.findFirst({
-      where: { mobile, consumedAt: null, expiresAt: { gt: new Date() } },
+      where: { mobile, ...OtpChallengeRepository.UNCONSUMED, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -22,14 +28,14 @@ export class OtpChallengeRepository {
   /** The most recent unconsumed challenge regardless of expiry — used by verify. */
   findLatestUnconsumed(mobile: string): Promise<OtpChallenge | null> {
     return this.prisma.otpChallenge.findFirst({
-      where: { mobile, consumedAt: null },
+      where: { mobile, ...OtpChallengeRepository.UNCONSUMED },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async invalidateActive(mobile: string): Promise<void> {
     await this.prisma.otpChallenge.updateMany({
-      where: { mobile, consumedAt: null },
+      where: { mobile, ...OtpChallengeRepository.UNCONSUMED },
       data: { consumedAt: new Date() },
     });
   }
@@ -47,5 +53,13 @@ export class OtpChallengeRepository {
 
   consume(id: string): Promise<OtpChallenge> {
     return this.prisma.otpChallenge.update({ where: { id }, data: { consumedAt: new Date() } });
+  }
+
+  /** Purge challenges that expired before `before` (sweep job). Returns the count removed. */
+  async deleteExpiredBefore(before: Date): Promise<number> {
+    const { count } = await this.prisma.otpChallenge.deleteMany({
+      where: { expiresAt: { lt: before } },
+    });
+    return count;
   }
 }

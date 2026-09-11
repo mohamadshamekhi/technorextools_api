@@ -17,6 +17,7 @@ export interface InventoryVariantView {
   colorName: string | null;
   stockQty: number;
   priceOverride: number | null;
+  weightGrams: number | null;
   isActive: boolean;
   priceTiers: Array<{ minQty: number; unitPrice: number }>;
   updatedAt: string;
@@ -54,10 +55,11 @@ export class InventoryService {
     if (!variant) {
       throw new NotFoundException('واریانت یافت نشد');
     }
-    const { priceOverride, ...rest } = input;
+    const { priceOverride, weightGrams, ...rest } = input;
     const updated = await this.variants.update(id, {
       ...rest,
       ...(priceOverride !== undefined ? { priceOverride: priceOverride ?? null } : {}),
+      ...(weightGrams !== undefined ? { weightGrams: weightGrams ?? null } : {}),
     });
     return toView({ ...variant, ...updated });
   }
@@ -100,6 +102,7 @@ function toView(variant: VariantRow): InventoryVariantView {
     colorName: variant.colorName,
     stockQty: variant.stockQty,
     priceOverride: variant.priceOverride,
+    weightGrams: variant.weightGrams,
     isActive: variant.isActive,
     priceTiers: variant.priceTiers ?? [],
     updatedAt: variant.updatedAt.toISOString(),

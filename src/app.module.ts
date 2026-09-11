@@ -1,10 +1,11 @@
 import { Logger, Module } from '@nestjs/common';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { ConfigModule } from './config/config.module';
 import { RedisModule, REDIS_CLIENT, type RedisClient } from './common/redis/redis.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { HttpLoggerInterceptor } from './common/logging/http-logger.interceptor';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { PersianThrottlerGuard } from './common/guards/persian-throttler.guard';
@@ -29,6 +30,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { SupportModule } from './modules/support/support.module';
 import { AdminLogModule } from './modules/admin-log/admin-log.module';
 import { SweepModule } from './modules/sweep/sweep.module';
+import { MediaModule } from './modules/media/media.module';
 import { PaymentCallbackModule } from './modules/payment/payment-callback.module';
 import { BackofficeOrdersModule } from './modules/backoffice/orders/backoffice-orders.module';
 import { BackofficeShippingModule } from './modules/backoffice/shipping/backoffice-shipping.module';
@@ -122,6 +124,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     BackofficeBundlesModule,
     BackofficeLoyaltyModule,
     BackofficeReportsModule,
+    MediaModule,
 
     // Public-site surface (abzar/storefront) — /api/v1/storefront/*
     StorefrontCatalogModule,
@@ -143,6 +146,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     { provide: APP_GUARD, useClass: PersianThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_INTERCEPTOR, useClass: HttpLoggerInterceptor },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })

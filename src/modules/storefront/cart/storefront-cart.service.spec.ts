@@ -2,6 +2,8 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { StorefrontCartService } from './storefront-cart.service';
 import type { CartRepository } from '../../cart/repositories/cart.repository';
 import type { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
+import type { BundleRepository } from '../../bundles/repositories/bundle.repository';
+import type { MediaRepository } from '../../media/repositories/media.repository';
 import type { AuthenticatedUser } from '../../auth/token.types';
 
 const USER: AuthenticatedUser = {
@@ -71,7 +73,14 @@ function make(over: Record<string, jest.Mock> = {}) {
   const variants = {
     findByIdForCart: over.findByIdForCart ?? jest.fn().mockResolvedValue(variant()),
   } as unknown as ProductVariantRepository;
-  return { service: new StorefrontCartService(carts, variants), carts, variants };
+  const bundles = {
+    findById: over.bundleFindById ?? jest.fn().mockResolvedValue(null),
+    findItemByBundle: jest.fn().mockResolvedValue(null),
+  } as unknown as BundleRepository;
+  const media = {
+    findByOwners: jest.fn().mockResolvedValue([]),
+  } as unknown as MediaRepository;
+  return { service: new StorefrontCartService(carts, variants, bundles, media), carts, variants };
 }
 
 describe('StorefrontCartService', () => {

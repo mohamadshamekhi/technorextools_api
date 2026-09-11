@@ -8,7 +8,6 @@ const detailInclude = {
       variant: {
         include: {
           product: { select: { id: true, title: true, slug: true, basePrice: true } },
-          images: { where: { isMain: true }, take: 1 },
         },
       },
     },

@@ -40,6 +40,7 @@ export const PERMISSIONS = [
   { code: 'comments.moderate', group: 'content', description: 'تأیید/رد نظرات' },
   { code: 'tickets.handle', group: 'content', description: 'پاسخ به تیکت‌های پشتیبانی' },
   { code: 'articles.manage', group: 'content', description: 'مدیریت وبلاگ' },
+  { code: 'media.manage', group: 'content', description: 'آپلود تصویر و رسانه' },
   { code: 'branches.manage', group: 'content', description: 'مدیریت شعب و اطلاعات تماس' },
   { code: 'repairs.manage', group: 'content', description: 'مدیریت درخواست‌های تعمیر' },
   { code: 'warranties.manage', group: 'content', description: 'صدور و مدیریت گارانتی' },

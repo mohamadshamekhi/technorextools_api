@@ -5,10 +5,13 @@ import { PrismaService } from '../../../prisma/prisma.service';
 const cartItemInclude = {
   variant: {
     include: {
-      product: {
-        include: { images: { where: { isMain: true }, orderBy: { sortOrder: 'asc' }, take: 1 } },
-      },
+      product: true,
       priceTiers: { orderBy: { minQty: 'asc' } },
+    },
+  },
+  bundle: {
+    include: {
+      items: { include: { variant: { include: { product: { select: { title: true } } } } } },
     },
   },
 } satisfies Prisma.CartItemInclude;
@@ -93,6 +96,19 @@ export class CartRepository {
       .then(() => undefined);
   }
 
+  addBundleItem(cartId: string, bundleId: string, qty: number): Promise<void> {
+    return this.prisma.cartItem
+      .create({ data: { cartId, bundleId, qty } })
+      .then(() => undefined);
+  }
+
+  findItemByBundle(cartId: string, bundleId: string): Promise<CartItemWithVariant | null> {
+    return this.prisma.cartItem.findFirst({
+      where: { cartId, bundleId },
+      include: cartItemInclude,
+    });
+  }
+
   setItemQty(itemId: string, qty: number): Promise<void> {
     return this.prisma.cartItem.update({ where: { id: itemId }, data: { qty } }).then(() => undefined);
   }
@@ -127,18 +143,26 @@ export class CartRepository {
     excludeCartId: string,
     now: Date,
   ): Promise<Map<string, number>> {
+    const wanted = new Set(variantIds);
     const rows = await this.prisma.cartItem.findMany({
       where: {
-        variantId: { in: variantIds },
         cartId: { not: excludeCartId },
         reservedUntil: { gt: now },
+        OR: [{ variantId: { in: variantIds } }, { bundleId: { not: null } }],
       },
-      select: { variantId: true, qty: true },
+      select: {
+        variantId: true,
+        qty: true,
+        bundle: { select: { items: { select: { variantId: true, qty: true } } } },
+      },
     });
     const out = new Map<string, number>();
+    const add = (id: string, n: number) => out.set(id, (out.get(id) ?? 0) + n);
     for (const row of rows) {
-      if (!row.variantId) continue;
-      out.set(row.variantId, (out.get(row.variantId) ?? 0) + row.qty);
+      if (row.variantId && wanted.has(row.variantId)) add(row.variantId, row.qty);
+      for (const comp of row.bundle?.items ?? []) {
+        if (wanted.has(comp.variantId)) add(comp.variantId, comp.qty * row.qty);
+      }
     }
     return out;
   }

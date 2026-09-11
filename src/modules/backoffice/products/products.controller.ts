@@ -18,7 +18,6 @@ import {
   createVariantSchema,
   listProductsQuerySchema,
   replaceAttributeValuesSchema,
-  replaceImagesSchema,
   replaceRelatedSchema,
   updateProductSchema,
   updateProductVariantSchema,
@@ -26,7 +25,6 @@ import {
   type CreateVariantInput,
   type ListProductsQuery,
   type ReplaceAttributeValuesInput,
-  type ReplaceImagesInput,
   type ReplaceRelatedInput,
   type UpdateProductInput,
   type UpdateProductVariantInput,
@@ -35,7 +33,6 @@ import {
   ProductsService,
   type ProductCardView,
   type ProductDetail,
-  type ProductImageView,
   type ProductVariantView,
 } from './products.service';
 
@@ -80,15 +77,6 @@ export class BackofficeProductsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   async delete(@Param('id') id: string): Promise<void> {
     await this.products.delete(id);
-  }
-
-  @RequirePermissions('products.manage')
-  @Put(':id/images')
-  replaceImages(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(replaceImagesSchema)) body: ReplaceImagesInput,
-  ): Promise<ProductImageView[]> {
-    return this.products.replaceImages(id, body);
   }
 
   @RequirePermissions('products.manage')

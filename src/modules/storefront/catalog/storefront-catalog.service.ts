@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Category, Prisma, Product, ProductImage } from '@prisma/client';
+import type { Category, Media, Prisma, Product } from '@prisma/client';
 import { ProductRepository } from '../../catalog/repositories/product.repository';
 import { CategoryRepository } from '../../catalog/repositories/category.repository';
 import { BrandRepository } from '../../catalog/repositories/brand.repository';
 import { CommentRepository } from '../../catalog/repositories/comment.repository';
 import { BundleRepository, type BundleDetailRow } from '../../bundles/repositories/bundle.repository';
+import { MediaRepository } from '../../media/repositories/media.repository';
+import { firstUrlOf, mainImageUrlOf, toGalleryImages } from '../../media/media.gallery';
 import type {
   StorefrontCreateCommentInput,
   StorefrontListCommentsQuery,
@@ -46,6 +48,7 @@ export interface StorefrontProductDetailView {
   basePrice: number;
   isAmazingDeal: boolean;
   datasheetUrl: string | null;
+  model3dUrl: string | null;
   category: { id: string; title: string; slug: string };
   brand: {
     id: string;
@@ -58,6 +61,7 @@ export interface StorefrontProductDetailView {
   images: Array<{
     id: string;
     url: string;
+    alt: string | null;
     variantId: string | null;
     isMain: boolean;
     sortOrder: number;
@@ -116,7 +120,21 @@ export class StorefrontCatalogService {
     private readonly products: ProductRepository,
     private readonly comments: CommentRepository,
     private readonly bundles: BundleRepository,
+    private readonly media: MediaRepository,
   ) {}
+
+  /** Media rows for a set of products, grouped by product id. */
+  private async mediaByProduct(ids: string[]): Promise<Map<string, Media[]>> {
+    const rows = await this.media.findByOwners('PRODUCT', ids);
+    const map = new Map<string, Media[]>();
+    for (const row of rows) {
+      if (!row.ownerId) continue;
+      const list = map.get(row.ownerId);
+      if (list) list.push(row);
+      else map.set(row.ownerId, [row]);
+    }
+    return map;
+  }
 
   async productComments(
     slug: string,
@@ -173,7 +191,8 @@ export class StorefrontCatalogService {
 
   async listBundles(): Promise<StorefrontBundleView[]> {
     const rows = await this.bundles.findMany({ isActive: true });
-    return rows.map(toBundleView);
+    const media = await this.variantMedia(rows);
+    return rows.map((b) => toBundleView(b, media));
   }
 
   async bundleDetail(slug: string): Promise<StorefrontBundleView> {
@@ -181,7 +200,23 @@ export class StorefrontCatalogService {
     if (!bundle || !bundle.isActive) {
       throw new NotFoundException('پکیج یافت نشد');
     }
-    return toBundleView(bundle);
+    return toBundleView(bundle, await this.variantMedia([bundle]));
+  }
+
+  /** Media rows for every variant referenced by the given bundles, grouped by variant id. */
+  private async variantMedia(bundles: BundleDetailRow[]): Promise<Map<string, Media[]>> {
+    const variantIds = [
+      ...new Set(bundles.flatMap((b) => b.items.map((i) => i.variant.id))),
+    ];
+    const rows = await this.media.findByOwners('PRODUCT_VARIANT', variantIds);
+    const map = new Map<string, Media[]>();
+    for (const row of rows) {
+      if (!row.ownerId) continue;
+      const list = map.get(row.ownerId);
+      if (list) list.push(row);
+      else map.set(row.ownerId, [row]);
+    }
+    return map;
   }
 
   async categoryTree(): Promise<StorefrontCategoryNode[]> {
@@ -260,7 +295,13 @@ export class StorefrontCatalogService {
       query.take,
       orderBy,
     );
-    return { items: items.map(toCardView), total, skip: query.skip, take: query.take };
+    const media = await this.mediaByProduct(items.map((p) => p.id));
+    return {
+      items: items.map((p) => toCardView(p, media.get(p.id) ?? [])),
+      total,
+      skip: query.skip,
+      take: query.take,
+    };
   }
 
   async productDetail(slug: string): Promise<StorefrontProductDetailView> {
@@ -268,6 +309,13 @@ export class StorefrontCatalogService {
     if (!product) {
       throw new NotFoundException('محصول یافت نشد');
     }
+    const media = await this.media.findProductMedia(
+      product.id,
+      product.variants.map((v) => v.id),
+    );
+    const relatedMedia = await this.mediaByProduct(
+      product.relatedTo.map((rel) => rel.relatedProductId),
+    );
     return {
       id: product.id,
       title: product.title,
@@ -276,7 +324,8 @@ export class StorefrontCatalogService {
       description: product.description,
       basePrice: product.basePrice,
       isAmazingDeal: product.isAmazingDeal,
-      datasheetUrl: product.datasheetUrl,
+      datasheetUrl: firstUrlOf(media, 'DATASHEET'),
+      model3dUrl: firstUrlOf(media, 'MODEL_3D'),
       category: product.category,
       brand: product.brand
         ? {
@@ -288,13 +337,7 @@ export class StorefrontCatalogService {
             authenticityNote: product.brand.authenticityNote,
           }
         : null,
-      images: product.images.map((img) => ({
-        id: img.id,
-        url: img.url,
-        variantId: img.variantId,
-        isMain: img.isMain,
-        sortOrder: img.sortOrder,
-      })),
+      images: toGalleryImages(media),
       variants: product.variants.map((variant) => ({
         id: variant.id,
         sku: variant.sku,
@@ -313,7 +356,7 @@ export class StorefrontCatalogService {
         rel.related.isActive &&
         rel.related.deletedAt === null &&
         rel.related.id !== product.id
-          ? [toCardView(rel.related)]
+          ? [toCardView(rel.related, relatedMedia.get(rel.related.id) ?? [])]
           : [],
       ),
     };
@@ -342,13 +385,12 @@ export class StorefrontCatalogService {
   }
 }
 
-/** Anything with brand + images is enough for a card — list rows and related rows both qualify. */
+/** Anything with brand is enough for a card — list rows and related rows both qualify. */
 type CardRow = Product & {
   brand: { id: string; title: string; slug: string } | null;
-  images: ProductImage[];
 };
 
-function toCardView(product: CardRow): StorefrontProductCardView {
+function toCardView(product: CardRow, media: Media[]): StorefrontProductCardView {
   return {
     id: product.id,
     title: product.title,
@@ -356,11 +398,14 @@ function toCardView(product: CardRow): StorefrontProductCardView {
     basePrice: product.basePrice,
     isAmazingDeal: product.isAmazingDeal,
     brand: product.brand ? { title: product.brand.title, slug: product.brand.slug } : null,
-    mainImageUrl: product.images.find((img) => img.isMain)?.url ?? product.images[0]?.url ?? null,
+    mainImageUrl: mainImageUrlOf(media),
   };
 }
 
-function toBundleView(bundle: BundleDetailRow): StorefrontBundleView {
+function toBundleView(
+  bundle: BundleDetailRow,
+  variantMedia: Map<string, Media[]>,
+): StorefrontBundleView {
   return {
     id: bundle.id,
     title: bundle.title,
@@ -375,7 +420,7 @@ function toBundleView(bundle: BundleDetailRow): StorefrontBundleView {
         colorName: item.variant.colorName,
         stockQty: item.variant.stockQty,
         effectivePrice: item.variant.priceOverride ?? item.variant.product.basePrice,
-        imageUrl: item.variant.images[0]?.url ?? null,
+        imageUrl: mainImageUrlOf(variantMedia.get(item.variant.id) ?? []),
         product: {
           id: item.variant.product.id,
           title: item.variant.product.title,
