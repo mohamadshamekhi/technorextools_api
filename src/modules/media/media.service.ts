@@ -9,13 +9,21 @@ import { randomUUID } from 'node:crypto';
 import type { Media, MediaKind, MediaOwnerType } from '@prisma/client';
 import type { Env } from '../../config/env.schema';
 import { BrandRepository } from '../catalog/repositories/brand.repository';
+import { SparePartRepository } from '../spare-parts/repositories/spare-part.repository';
 import { CategoryRepository } from '../catalog/repositories/category.repository';
+import { ArticleRepository } from '../content/repositories/article.repository';
 import { ProductRepository } from '../catalog/repositories/product.repository';
 import { ProductVariantRepository } from '../catalog/repositories/product-variant.repository';
 import { MediaRepository } from './repositories/media.repository';
 import { convertToWebp, WEBP_CONVERTIBLE_TYPES } from './image-webp';
+import { fetchRemoteFile } from './remote-fetch';
 import { presignDelete, presignPut, type S3Config } from './s3-presigner';
-import type { ListMediaQuery, UpdateMediaInput, UploadMediaInput } from './media.schemas';
+import type {
+  ListMediaQuery,
+  UpdateMediaInput,
+  UploadAttachmentInput,
+  UploadMediaInput,
+} from './media.schemas';
 
 /** contentType → file extension fallback when the original name has none. */
 const MIME_EXT: Record<string, string> = {
@@ -32,6 +40,12 @@ const UPLOAD_ACL = 'public-read';
 
 /** Hard cap on a single upload — 50 MB. */
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
+/** Tighter cap for customer-uploaded attachments (tickets / repair requests) — 10 MB. */
+export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+
+/** What a customer may attach to a ticket message or repair request. */
+const ATTACHMENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf']);
 
 /** Minimal shape of a multer file — avoids depending on the Express.Multer global. */
 export interface UploadedFile {
@@ -81,6 +95,8 @@ export class MediaService {
     private readonly variants: ProductVariantRepository,
     private readonly brands: BrandRepository,
     private readonly categories: CategoryRepository,
+    private readonly spareParts: SparePartRepository,
+    private readonly articles: ArticleRepository,
   ) {
     const endpoint = config.get('S3_ENDPOINT', { infer: true });
     const bucket = config.get('S3_BUCKET', { infer: true });
@@ -176,6 +192,73 @@ export class MediaService {
     return toView(row);
   }
 
+  /**
+   * Customer attachment upload — images/PDF only, 10 MB, always unattached: the
+   * row is bound to its owner by `attachToOwner` when the ticket message or
+   * repair request is created.
+   */
+  async uploadAttachment(
+    file: UploadedFile | undefined,
+    input: UploadAttachmentInput,
+    uploadedById: string,
+  ): Promise<MediaView> {
+    if (!file || !file.buffer?.length) {
+      throw new BadRequestException('فایلی ارسال نشده است');
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException('حجم فایل بیش از حد مجاز است (حداکثر ۱۰ مگابایت)');
+    }
+    if (!ATTACHMENT_TYPES.has(file.mimetype)) {
+      throw new BadRequestException('فقط تصویر (JPEG/PNG/WebP) یا PDF مجاز است');
+    }
+    return this.upload(
+      file,
+      { purpose: 'ATTACHMENT', folder: 'attachments', alt: input.alt },
+      uploadedById,
+    );
+  }
+
+  /**
+   * Same as `upload`, but the bytes come from a public URL instead of a
+   * multipart part — used by the crawler-facing import endpoints, which only
+   * know the source site's image URL. The URL is SSRF-guarded (`remote-fetch`)
+   * and must resolve to an image.
+   */
+  async uploadFromUrl(
+    url: string,
+    input: UploadMediaInput,
+    uploadedById?: string,
+  ): Promise<MediaView> {
+    const file = await fetchRemoteFile(url, MAX_UPLOAD_BYTES);
+    if (!file.mimetype.startsWith('image/')) {
+      throw new BadRequestException('آدرس داده‌شده یک تصویر نیست');
+    }
+    return this.upload(file, input, uploadedById);
+  }
+
+  /**
+   * Bind freshly uploaded attachments to the row they belong to. Only the
+   * uploader's own still-unattached rows are accepted — ids that don't match
+   * are rejected, so one customer can't graft another's upload onto their ticket.
+   */
+  async attachToOwner(
+    ids: string[],
+    ownerType: MediaOwnerType,
+    ownerId: string,
+    uploadedById: string,
+  ): Promise<void> {
+    if (ids.length === 0) return;
+    const rows = await this.media.findUnattachedByIds(ids, uploadedById);
+    if (rows.length !== new Set(ids).size) {
+      throw new BadRequestException('پیوست نامعتبر است یا قبلاً استفاده شده');
+    }
+    await this.media.attachToOwner(
+      rows.map((r) => r.id),
+      ownerType,
+      ownerId,
+    );
+  }
+
   async listByOwner(query: ListMediaQuery): Promise<MediaView[]> {
     const rows = await this.media.findByOwner(query.ownerType, query.ownerId);
     return rows.map(toView);
@@ -193,7 +276,12 @@ export class MediaService {
       ...(input.sortOrder !== undefined ? { sortOrder: input.sortOrder } : {}),
     });
     if (updated.isMain && updated.ownerType && updated.ownerId) {
-      await this.media.clearMainFlag(updated.ownerType, updated.ownerId, updated.purpose, updated.id);
+      await this.media.clearMainFlag(
+        updated.ownerType,
+        updated.ownerId,
+        updated.purpose,
+        updated.id,
+      );
     }
     return toView(updated);
   }
@@ -221,10 +309,14 @@ export class MediaService {
           return !!(await this.products.findById(ownerId));
         case 'PRODUCT_VARIANT':
           return !!(await this.variants.findById(ownerId));
+        case 'SPARE_PART':
+          return !!(await this.spareParts.findById(ownerId));
         case 'BRAND':
           return !!(await this.brands.findById(ownerId));
         case 'CATEGORY':
           return !!(await this.categories.findById(ownerId));
+        case 'ARTICLE':
+          return !!(await this.articles.findById(ownerId));
         default:
           throw new BadRequestException('این نوع مالک هنوز پشتیبانی نمی‌شود');
       }

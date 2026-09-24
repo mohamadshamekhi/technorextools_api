@@ -1,15 +1,23 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, PaymentMethodKind } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { NotificationType, OrderStatus, PaymentMethodKind } from '@prisma/client';
 import { SmsService, type SmsTemplate } from '../../common/sms/sms.service';
 import { CartRepository } from '../cart/repositories/cart.repository';
 import { ProductVariantRepository } from '../catalog/repositories/product-variant.repository';
 import { BundleRepository } from '../bundles/repositories/bundle.repository';
+import { SparePartRepository } from '../spare-parts/repositories/spare-part.repository';
 import { AppSettingsService } from '../content/app-settings.service';
 import { DiscountRepository } from '../discounts/repositories/discount.repository';
 import { DiscountUsageRepository } from '../discounts/repositories/discount-usage.repository';
 import { LoyaltyService } from '../loyalty/loyalty.service';
 import { ReferralRepository } from '../referral/repositories/referral.repository';
 import { UserRepository } from '../access/repositories/user.repository';
+import { NotificationRepository } from '../notifications/repositories/notification.repository';
 import { OrderRepository, type OrderDetailRow } from './repositories/order.repository';
 import { PaymentRepository } from './repositories/payment.repository';
 
@@ -28,6 +36,13 @@ const ADMIN_TRANSITIONS: Partial<Record<OrderStatus, OrderStatus[]>> = {
   [OrderStatus.shipped]: [OrderStatus.delivered],
 };
 
+/** Status changes the customer gets an in-app notification for. */
+const IN_APP_TYPE: Partial<Record<OrderStatus, NotificationType>> = {
+  [OrderStatus.shipped]: NotificationType.order_shipped,
+  [OrderStatus.delivered]: NotificationType.order_delivered,
+  [OrderStatus.cancelled]: NotificationType.order_cancelled,
+};
+
 /**
  * Order lifecycle orchestrator (aggregate-owned). The single place that moves
  * stock, loyalty points, referral rewards and cart state as an order changes
@@ -43,6 +58,7 @@ export class OrdersService {
     private readonly payments: PaymentRepository,
     private readonly variants: ProductVariantRepository,
     private readonly bundles: BundleRepository,
+    private readonly spareParts: SparePartRepository,
     private readonly carts: CartRepository,
     private readonly discounts: DiscountRepository,
     private readonly discountUsages: DiscountUsageRepository,
@@ -51,6 +67,7 @@ export class OrdersService {
     private readonly users: UserRepository,
     private readonly settings: AppSettingsService,
     private readonly sms: SmsService,
+    private readonly notifications: NotificationRepository,
   ) {}
 
   async requireByNumber(orderNumber: string): Promise<OrderDetailRow> {
@@ -59,19 +76,27 @@ export class OrdersService {
     return order;
   }
 
-  /** Settle a successful payment. Idempotent — safe to call twice from the callback. */
+  /**
+   * Settle a successful payment. Idempotent — the status flip is an atomic
+   * compare-and-set, so a duplicate/concurrent callback applies the side
+   * effects (stock, discount usage, points, cart) exactly once.
+   */
   async markPaid(order: OrderDetailRow, refId: string): Promise<OrderDetailRow> {
     if (PAID_FAMILY.includes(order.status)) return order;
     if (order.status !== OrderStatus.pending_payment) {
       throw new BadRequestException('این سفارش قابل پرداخت نیست');
     }
 
-    // Re-read the current status as a cheap idempotency guard against a
-    // duplicate callback landing before the first one flips the status.
-    const fresh = await this.orders.findById(order.id);
-    if (!fresh || fresh.status !== OrderStatus.pending_payment) {
-      return fresh ?? order;
-    }
+    const paid = await this.orders.transition(
+      order.id,
+      [OrderStatus.pending_payment],
+      OrderStatus.paid,
+      {
+        bySystem: true,
+        note: 'پرداخت موفق',
+      },
+    );
+    if (!paid) return (await this.orders.findById(order.id)) ?? order;
 
     await this.adjustOrderStock(order, -1);
 
@@ -86,10 +111,6 @@ export class OrdersService {
     await this.loyalty.creditForOrder(order.userId, order.id, order.total);
     await this.releaseCart(order.userId, { convert: true });
 
-    const paid = await this.orders.setStatus(order.id, OrderStatus.paid, {
-      bySystem: true,
-      note: 'پرداخت موفق',
-    });
     // After the status flip: exactly 1 order is now in the paid family → this is the first.
     await this.grantReferralRewardIfFirstPaid(order.userId);
     void this.notify(order.userId, 'order_paid', [order.orderNumber]);
@@ -109,29 +130,28 @@ export class OrdersService {
 
   /** A failed or cancelled payment attempt (from the callback). */
   async markPaymentFailed(order: OrderDetailRow, reason: string): Promise<OrderDetailRow> {
-    if (order.status !== OrderStatus.pending_payment) return order;
-    const pending = await this.payments.findLatestPendingForOrder(order.id);
-    if (pending) await this.payments.markFailed(pending.id);
-    await this.loyalty.refundRedemption(order.userId, order.id);
-    await this.releaseCart(order.userId, { convert: false });
-    return this.orders.setStatus(order.id, OrderStatus.payment_failed, {
-      bySystem: true,
-      note: `پرداخت ناموفق: ${reason}`,
-    });
+    const failed = await this.abandon(
+      order,
+      OrderStatus.payment_failed,
+      `پرداخت ناموفق: ${reason}`,
+    );
+    return failed ?? (await this.orders.findById(order.id)) ?? order;
   }
 
   /** Reservation window lapsed with no successful payment (sweep job). */
   async expire(order: OrderDetailRow): Promise<void> {
-    if (order.status !== OrderStatus.pending_payment) return;
-    const pending = await this.payments.findLatestPendingForOrder(order.id);
-    if (pending) await this.payments.markFailed(pending.id);
-    await this.loyalty.refundRedemption(order.userId, order.id);
-    await this.releaseCart(order.userId, { convert: false });
-    await this.orders.setStatus(order.id, OrderStatus.abandoned, {
-      bySystem: true,
-      note: 'انقضای مهلت پرداخت',
-    });
-    this.logger.log(`order ${order.orderNumber} expired`);
+    if (await this.abandon(order, OrderStatus.abandoned, 'انقضای مهلت پرداخت')) {
+      this.logger.log(`order ${order.orderNumber} expired`);
+    }
+  }
+
+  /**
+   * Roll back a just-placed order whose checkout failed half-way (compensation —
+   * the checkout steps aren't one DB transaction). Returns points, releases the
+   * reservation, and parks the order as `abandoned`.
+   */
+  async abortCheckout(order: OrderDetailRow): Promise<void> {
+    await this.abandon(order, OrderStatus.abandoned, 'خطا در ثبت سفارش');
   }
 
   async adminSetStatus(
@@ -139,20 +159,50 @@ export class OrdersService {
     next: OrderStatus,
     adminUserId: string,
     note?: string,
+    shipment?: { carrier?: string | null; trackingNumber?: string | null },
   ): Promise<OrderDetailRow> {
     const allowed = ADMIN_TRANSITIONS[order.status] ?? [];
     if (!allowed.includes(next)) {
       throw new BadRequestException(`تغییر وضعیت از ${order.status} به ${next} مجاز نیست`);
     }
+    // Compare-and-set on the status we validated against — two admins racing the
+    // same cancel can't both restock.
+    const updated = await this.orders.transition(order.id, [order.status], next, {
+      changedByUserId: adminUserId,
+      note,
+    });
+    if (!updated)
+      throw new ConflictException('وضعیت سفارش همزمان تغییر کرده است؛ دوباره تلاش کنید');
+
     if (next === OrderStatus.cancelled && PAID_FAMILY.includes(order.status)) {
       await this.adjustOrderStock(order, 1);
       await this.loyalty.refundRedemption(order.userId, order.id);
     }
-    const updated = await this.orders.setStatus(order.id, next, {
-      changedByUserId: adminUserId,
+    const withShipment =
+      shipment && (shipment.carrier !== undefined || shipment.trackingNumber !== undefined)
+        ? ((await this.orders.setShipment(order.id, shipment)) ?? updated)
+        : updated;
+    void this.notify(order.userId, 'order_status', [order.orderNumber, statusFa(next)]);
+    await this.notifyInApp(order.userId, order.orderNumber, next);
+    return withShipment;
+  }
+
+  /** pending_payment → `to`, then undo the checkout's holds. Null if it wasn't pending anymore. */
+  private async abandon(
+    order: OrderDetailRow,
+    to: OrderStatus,
+    note: string,
+  ): Promise<OrderDetailRow | null> {
+    if (order.status !== OrderStatus.pending_payment) return null;
+    const updated = await this.orders.transition(order.id, [OrderStatus.pending_payment], to, {
+      bySystem: true,
       note,
     });
-    void this.notify(order.userId, 'order_status', [order.orderNumber, statusFa(next)]);
+    if (!updated) return null;
+    const pending = await this.payments.findLatestPendingForOrder(order.id);
+    if (pending) await this.payments.markFailed(pending.id);
+    await this.loyalty.refundRedemption(order.userId, order.id);
+    await this.releaseCart(order.userId, { convert: false });
     return updated;
   }
 
@@ -161,6 +211,8 @@ export class OrdersService {
     for (const item of order.items) {
       if (item.variantId) {
         await this.variants.adjustStock(item.variantId, sign * item.qty);
+      } else if (item.sparePartId) {
+        await this.spareParts.adjustStock(item.sparePartId, sign * item.qty);
       } else if (item.bundleId) {
         const bundle = await this.bundles.findById(item.bundleId);
         for (const bi of bundle?.items ?? []) {
@@ -193,6 +245,26 @@ export class OrdersService {
     }
   }
 
+  /** In-app notification for the customer-visible status changes. Never fails the caller. */
+  private async notifyInApp(
+    userId: string,
+    orderNumber: string,
+    status: OrderStatus,
+  ): Promise<void> {
+    const type = IN_APP_TYPE[status];
+    if (!type) return;
+    try {
+      await this.notifications.create({
+        userId,
+        type,
+        title: `سفارش ${statusFa(status)}`,
+        body: `سفارش ${orderNumber} ${statusFa(status)} شد.`,
+      });
+    } catch (err) {
+      this.logger.warn(`in-app notify failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   private async notify(userId: string, template: SmsTemplate, vars: string[]): Promise<void> {
     try {
       const user = await this.users.findById(userId);
@@ -203,7 +275,8 @@ export class OrdersService {
   }
 }
 
-function statusFa(status: OrderStatus): string {
+/** Persian label of a status — also used by the public order-tracking view. */
+export function statusFa(status: OrderStatus): string {
   const map: Record<OrderStatus, string> = {
     pending_payment: 'در انتظار پرداخت',
     payment_failed: 'پرداخت ناموفق',

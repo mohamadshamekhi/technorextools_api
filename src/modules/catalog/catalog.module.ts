@@ -6,6 +6,8 @@ import { BrandRepository } from './repositories/brand.repository';
 import { CategoryRepository } from './repositories/category.repository';
 import { ProductRepository } from './repositories/product.repository';
 import { ProductVariantRepository } from './repositories/product-variant.repository';
+import { ProductDocumentRepository } from './repositories/product-document.repository';
+import { ProductQuestionRepository } from './repositories/product-question.repository';
 
 /**
  * Catalog domain core — repositories shared by the backoffice catalog modules
@@ -22,6 +24,8 @@ import { ProductVariantRepository } from './repositories/product-variant.reposit
     ProductRepository,
     ProductVariantRepository,
     CommentRepository,
+    ProductDocumentRepository,
+    ProductQuestionRepository,
   ],
   exports: [
     CategoryRepository,
@@ -31,6 +35,8 @@ import { ProductVariantRepository } from './repositories/product-variant.reposit
     ProductRepository,
     ProductVariantRepository,
     CommentRepository,
+    ProductDocumentRepository,
+    ProductQuestionRepository,
   ],
 })
 export class CatalogModule {}

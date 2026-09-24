@@ -33,9 +33,7 @@ describe('MelipayamakSmsProvider', () => {
       json: () => Promise.resolve({ RetStatus: 0, StrRetStatus: 'error' }),
     } as Response);
 
-    await expect(provider.sendOtp('09120000000', '55555')).rejects.toThrow(
-      /rejected/,
-    );
+    await expect(provider.sendOtp('09120000000', '55555')).rejects.toThrow(/rejected/);
   });
 
   it('sends a transactional template through its configured bodyId', async () => {

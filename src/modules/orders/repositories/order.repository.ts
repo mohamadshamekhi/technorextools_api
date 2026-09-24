@@ -27,6 +27,7 @@ export interface NewOrderInput {
   items: Array<{
     variantId: string | null;
     bundleId: string | null;
+    sparePartId: string | null;
     qty: number;
     unitPrice: number;
     productTitle: string;
@@ -56,7 +57,17 @@ export class OrderRepository {
 
   countPaidByUser(userId: string): Promise<number> {
     return this.prisma.order.count({
-      where: { userId, status: { in: [OrderStatus.paid, OrderStatus.processing, OrderStatus.shipped, OrderStatus.delivered] } },
+      where: {
+        userId,
+        status: {
+          in: [
+            OrderStatus.paid,
+            OrderStatus.processing,
+            OrderStatus.shipped,
+            OrderStatus.delivered,
+          ],
+        },
+      },
     });
   }
 
@@ -94,13 +105,61 @@ export class OrderRepository {
     });
   }
 
+  /** Lifetime paid-family spend + the raw rows needed to bucket a recent-months trend. */
+  async spendStats(
+    userId: string,
+    since: Date,
+  ): Promise<{
+    totalSpend: number;
+    paidOrderCount: number;
+    recentOrders: Array<{ placedAt: Date; total: number }>;
+  }> {
+    const paidStatuses = [
+      OrderStatus.paid,
+      OrderStatus.processing,
+      OrderStatus.shipped,
+      OrderStatus.delivered,
+    ];
+    const [agg, recentOrders] = await Promise.all([
+      this.prisma.order.aggregate({
+        where: { userId, status: { in: paidStatuses } },
+        _sum: { total: true },
+        _count: { _all: true },
+      }),
+      this.prisma.order.findMany({
+        where: { userId, status: { in: paidStatuses }, placedAt: { gte: since } },
+        select: { placedAt: true, total: true },
+      }),
+    ]);
+    return {
+      totalSpend: agg._sum.total ?? 0,
+      paidOrderCount: agg._count._all,
+      recentOrders,
+    };
+  }
+
   /** Aggregate paid-family revenue and counts for a placed-at window, grouped by status. */
   async salesSummary(from: Date, to: Date) {
     const where: Prisma.OrderWhereInput = { placedAt: { gte: from, lte: to } };
     const [byStatus, paidAgg] = await Promise.all([
-      this.prisma.order.groupBy({ by: ['status'], where, _count: { _all: true }, _sum: { total: true } }),
+      this.prisma.order.groupBy({
+        by: ['status'],
+        where,
+        _count: { _all: true },
+        _sum: { total: true },
+      }),
       this.prisma.order.aggregate({
-        where: { ...where, status: { in: [OrderStatus.paid, OrderStatus.processing, OrderStatus.shipped, OrderStatus.delivered] } },
+        where: {
+          ...where,
+          status: {
+            in: [
+              OrderStatus.paid,
+              OrderStatus.processing,
+              OrderStatus.shipped,
+              OrderStatus.delivered,
+            ],
+          },
+        },
         _count: { _all: true },
         _sum: { total: true, discountAmount: true, shippingCost: true },
       }),
@@ -144,23 +203,39 @@ export class OrderRepository {
     return order;
   }
 
-  async setStatus(
+  /** Carrier + tracking number, set when an admin ships the order. */
+  setShipment(
     id: string,
-    status: OrderStatus,
+    data: { carrier?: string | null; trackingNumber?: string | null },
+  ): Promise<OrderDetailRow | null> {
+    return this.prisma.order.update({ where: { id }, data, include: detailInclude });
+  }
+
+  /**
+   * Atomic compare-and-set: flips the status only if it's still one of `from`.
+   * Returns null when another request got there first — the caller must then
+   * skip its side effects (stock, loyalty, …) so they run at most once.
+   */
+  async transition(
+    id: string,
+    from: OrderStatus[],
+    to: OrderStatus,
     opts: { changedByUserId?: string; bySystem?: boolean; note?: string } = {},
-  ): Promise<OrderDetailRow> {
-    const [order] = await this.prisma.$transaction([
-      this.prisma.order.update({ where: { id }, data: { status }, include: detailInclude }),
-      this.prisma.orderStatusHistory.create({
-        data: {
-          orderId: id,
-          status,
-          changedByUserId: opts.changedByUserId ?? null,
-          bySystem: opts.bySystem ?? false,
-          note: opts.note ?? null,
-        },
-      }),
-    ]);
-    return order;
+  ): Promise<OrderDetailRow | null> {
+    const { count } = await this.prisma.order.updateMany({
+      where: { id, status: { in: from } },
+      data: { status: to },
+    });
+    if (count === 0) return null;
+    await this.prisma.orderStatusHistory.create({
+      data: {
+        orderId: id,
+        status: to,
+        changedByUserId: opts.changedByUserId ?? null,
+        bySystem: opts.bySystem ?? false,
+        note: opts.note ?? null,
+      },
+    });
+    return this.prisma.order.findUnique({ where: { id }, include: detailInclude });
   }
 }

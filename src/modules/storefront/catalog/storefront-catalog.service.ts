@@ -1,12 +1,29 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { Category, Media, Prisma, Product } from '@prisma/client';
+import type { Category, Media, Prisma, Product, ProductVariant } from '@prisma/client';
 import { ProductRepository } from '../../catalog/repositories/product.repository';
 import { CategoryRepository } from '../../catalog/repositories/category.repository';
 import { BrandRepository } from '../../catalog/repositories/brand.repository';
 import { CommentRepository } from '../../catalog/repositories/comment.repository';
-import { BundleRepository, type BundleDetailRow } from '../../bundles/repositories/bundle.repository';
+import {
+  BundleRepository,
+  type BundleDetailRow,
+} from '../../bundles/repositories/bundle.repository';
+import { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
 import { MediaRepository } from '../../media/repositories/media.repository';
+import { ProductDocumentRepository } from '../../catalog/repositories/product-document.repository';
+import { ProductQuestionRepository } from '../../catalog/repositories/product-question.repository';
+import {
+  toDocumentViews,
+  toHighlightViews,
+  toModel3dHotspotViews,
+  toQuestionViews,
+  type ProductDocumentView,
+  type ProductHighlightView,
+  type ProductModel3dHotspotView,
+  type ProductQuestionView,
+} from '../../catalog/product-extras.view';
 import { firstUrlOf, mainImageUrlOf, toGalleryImages } from '../../media/media.gallery';
+import { toPartViews, type ProductPartView } from '../../catalog/product-parts.view';
 import type {
   StorefrontCreateCommentInput,
   StorefrontListCommentsQuery,
@@ -17,6 +34,7 @@ export interface StorefrontCategoryNode {
   id: string;
   title: string;
   slug: string;
+  imageUrl: string | null;
   sortOrder: number;
   children: StorefrontCategoryNode[];
 }
@@ -35,8 +53,11 @@ export interface StorefrontProductCardView {
   slug: string;
   basePrice: number;
   isAmazingDeal: boolean;
+  isFeatured: boolean;
   brand: { title: string; slug: string } | null;
   mainImageUrl: string | null;
+  /** First active variant — the price/id a card must show and add to cart. */
+  firstVariant: { id: string; effectivePrice: number; stockQty: number } | null;
 }
 
 export interface StorefrontProductDetailView {
@@ -47,8 +68,15 @@ export interface StorefrontProductDetailView {
   description: string | null;
   basePrice: number;
   isAmazingDeal: boolean;
+  isFeatured: boolean;
   datasheetUrl: string | null;
   model3dUrl: string | null;
+  explodedViewUrl: string | null;
+  parts: ProductPartView[];
+  highlights: ProductHighlightView[];
+  model3dHotspots: ProductModel3dHotspotView[];
+  documents: ProductDocumentView[];
+  questions: ProductQuestionView[];
   category: { id: string; title: string; slug: string };
   brand: {
     id: string;
@@ -121,7 +149,20 @@ export class StorefrontCatalogService {
     private readonly comments: CommentRepository,
     private readonly bundles: BundleRepository,
     private readonly media: MediaRepository,
+    private readonly documents: ProductDocumentRepository,
+    private readonly questions: ProductQuestionRepository,
+    private readonly variants: ProductVariantRepository,
   ) {}
+
+  /** First active variant per product id. */
+  private async firstVariantByProduct(ids: string[]): Promise<Map<string, ProductVariant>> {
+    const rows = await this.variants.findActiveByProductIds(ids);
+    const map = new Map<string, ProductVariant>();
+    for (const row of rows) {
+      if (!map.has(row.productId)) map.set(row.productId, row);
+    }
+    return map;
+  }
 
   /** Media rows for a set of products, grouped by product id. */
   private async mediaByProduct(ids: string[]): Promise<Map<string, Media[]>> {
@@ -185,8 +226,38 @@ export class StorefrontCatalogService {
     }
     const existing = await this.comments.findByUserAndProduct(userId, product.id);
     if (existing) throw new BadRequestException('شما پیش‌تر برای این محصول نظر ثبت کرده‌اید');
-    await this.comments.create({ userId, productId: product.id, rating: input.rating, body: input.body });
+    await this.comments.create({
+      userId,
+      productId: product.id,
+      rating: input.rating,
+      body: input.body,
+    });
     return { status: 'pending' };
+  }
+
+  /** Public Q&A of a product — approved rows only. */
+  async productQuestions(slug: string): Promise<ProductQuestionView[]> {
+    const product = await this.activeProductOrThrow(slug);
+    return toQuestionViews(await this.questions.findApprovedByProduct(product.id));
+  }
+
+  /** A signed-in customer asks a question; it stays `pending` until staff answers it. */
+  async addQuestion(
+    userId: string,
+    slug: string,
+    question: string,
+  ): Promise<{ status: 'pending' }> {
+    const product = await this.activeProductOrThrow(slug);
+    await this.questions.create({ userId, productId: product.id, question });
+    return { status: 'pending' };
+  }
+
+  private async activeProductOrThrow(slug: string) {
+    const product = await this.products.findBySlug(slug);
+    if (!product || !product.isActive || product.deletedAt !== null) {
+      throw new NotFoundException('محصول یافت نشد');
+    }
+    return product;
   }
 
   async listBundles(): Promise<StorefrontBundleView[]> {
@@ -205,9 +276,7 @@ export class StorefrontCatalogService {
 
   /** Media rows for every variant referenced by the given bundles, grouped by variant id. */
   private async variantMedia(bundles: BundleDetailRow[]): Promise<Map<string, Media[]>> {
-    const variantIds = [
-      ...new Set(bundles.flatMap((b) => b.items.map((i) => i.variant.id))),
-    ];
+    const variantIds = [...new Set(bundles.flatMap((b) => b.items.map((i) => i.variant.id)))];
     const rows = await this.media.findByOwners('PRODUCT_VARIANT', variantIds);
     const map = new Map<string, Media[]>();
     for (const row of rows) {
@@ -226,13 +295,24 @@ export class StorefrontCatalogService {
 
   async listBrands(): Promise<StorefrontBrandView[]> {
     const rows = await this.brands.findMany();
+    const logos = await this.brandLogos(rows.map((b) => b.id));
     return rows.map((brand) => ({
       id: brand.id,
       title: brand.title,
       slug: brand.slug,
-      logoUrl: brand.logoUrl,
+      logoUrl: logos.get(brand.id) ?? null,
       isExclusiveDistributor: brand.isExclusiveDistributor,
     }));
+  }
+
+  /** Brand logos live in `media` (`ownerType: BRAND`, `purpose: LOGO`) — one query for many brands. */
+  private async brandLogos(brandIds: string[]): Promise<Map<string, string>> {
+    const rows = await this.media.findByOwners('BRAND', brandIds);
+    const map = new Map<string, string>();
+    for (const m of rows) {
+      if (m.purpose === 'LOGO' && m.ownerId && !map.has(m.ownerId)) map.set(m.ownerId, m.url);
+    }
+    return map;
   }
 
   async listProducts(
@@ -270,6 +350,10 @@ export class StorefrontCatalogService {
       and.push({ isAmazingDeal: query.isAmazingDeal });
     }
 
+    if (query.isFeatured !== undefined) {
+      and.push({ isFeatured: query.isFeatured });
+    }
+
     if (query.search) {
       and.push({ title: { contains: query.search } });
     }
@@ -295,9 +379,11 @@ export class StorefrontCatalogService {
       query.take,
       orderBy,
     );
-    const media = await this.mediaByProduct(items.map((p) => p.id));
+    const ids = items.map((p) => p.id);
+    const media = await this.mediaByProduct(ids);
+    const firstVariants = await this.firstVariantByProduct(ids);
     return {
-      items: items.map((p) => toCardView(p, media.get(p.id) ?? [])),
+      items: items.map((p) => toCardView(p, media.get(p.id) ?? [], firstVariants.get(p.id))),
       total,
       skip: query.skip,
       take: query.take,
@@ -313,9 +399,15 @@ export class StorefrontCatalogService {
       product.id,
       product.variants.map((v) => v.id),
     );
-    const relatedMedia = await this.mediaByProduct(
-      product.relatedTo.map((rel) => rel.relatedProductId),
-    );
+    const brandLogoUrl = product.brand
+      ? ((await this.brandLogos([product.brand.id])).get(product.brand.id) ?? null)
+      : null;
+    const docs = await this.documents.findByProduct(product.id);
+    const docMedia = await this.media.findByIds(docs.map((d) => d.mediaId));
+    const questions = await this.questions.findApprovedByProduct(product.id);
+    const relatedIds = product.relatedTo.map((rel) => rel.relatedProductId);
+    const relatedMedia = await this.mediaByProduct(relatedIds);
+    const relatedVariants = await this.firstVariantByProduct(relatedIds);
     return {
       id: product.id,
       title: product.title,
@@ -324,15 +416,22 @@ export class StorefrontCatalogService {
       description: product.description,
       basePrice: product.basePrice,
       isAmazingDeal: product.isAmazingDeal,
+      isFeatured: product.isFeatured,
       datasheetUrl: firstUrlOf(media, 'DATASHEET'),
       model3dUrl: firstUrlOf(media, 'MODEL_3D'),
+      explodedViewUrl: firstUrlOf(media, 'EXPLODED_VIEW'),
+      parts: toPartViews(product.parts),
+      highlights: toHighlightViews(product),
+      model3dHotspots: toModel3dHotspotViews(product),
+      documents: toDocumentViews(docs, docMedia),
+      questions: toQuestionViews(questions),
       category: product.category,
       brand: product.brand
         ? {
             id: product.brand.id,
             title: product.brand.title,
             slug: product.brand.slug,
-            logoUrl: product.brand.logoUrl,
+            logoUrl: brandLogoUrl,
             isExclusiveDistributor: product.brand.isExclusiveDistributor,
             authenticityNote: product.brand.authenticityNote,
           }
@@ -356,7 +455,13 @@ export class StorefrontCatalogService {
         rel.related.isActive &&
         rel.related.deletedAt === null &&
         rel.related.id !== product.id
-          ? [toCardView(rel.related, relatedMedia.get(rel.related.id) ?? [])]
+          ? [
+              toCardView(
+                rel.related,
+                relatedMedia.get(rel.related.id) ?? [],
+                relatedVariants.get(rel.related.id),
+              ),
+            ]
           : [],
       ),
     };
@@ -390,15 +495,27 @@ type CardRow = Product & {
   brand: { id: string; title: string; slug: string } | null;
 };
 
-function toCardView(product: CardRow, media: Media[]): StorefrontProductCardView {
+function toCardView(
+  product: CardRow,
+  media: Media[],
+  variant: ProductVariant | undefined,
+): StorefrontProductCardView {
   return {
     id: product.id,
     title: product.title,
     slug: product.slug,
     basePrice: product.basePrice,
     isAmazingDeal: product.isAmazingDeal,
+    isFeatured: product.isFeatured,
     brand: product.brand ? { title: product.brand.title, slug: product.brand.slug } : null,
     mainImageUrl: mainImageUrlOf(media),
+    firstVariant: variant
+      ? {
+          id: variant.id,
+          effectivePrice: variant.priceOverride ?? product.basePrice,
+          stockQty: variant.stockQty,
+        }
+      : null,
   };
 }
 
@@ -438,6 +555,7 @@ function buildTree(rows: Category[]): StorefrontCategoryNode[] {
       id: row.id,
       title: row.title,
       slug: row.slug,
+      imageUrl: row.imageUrl,
       sortOrder: row.sortOrder,
       children: [],
     });

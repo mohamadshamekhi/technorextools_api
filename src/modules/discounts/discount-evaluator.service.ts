@@ -33,11 +33,7 @@ export class DiscountEvaluatorService {
     private readonly usages: DiscountUsageRepository,
   ) {}
 
-  async evaluate(
-    code: string,
-    userId: string,
-    lines: DiscountLine[],
-  ): Promise<DiscountEvaluation> {
+  async evaluate(code: string, userId: string, lines: DiscountLine[]): Promise<DiscountEvaluation> {
     const discount = await this.discounts.findByCode(code.trim());
     if (!discount || !discount.isActive) {
       throw new BadRequestException('کد تخفیف نامعتبر است');
@@ -74,10 +70,14 @@ export class DiscountEvaluatorService {
     }
 
     const productTargets = new Set(
-      discount.targets.filter((t) => t.targetType === DiscountTargetType.product).map((t) => t.targetId),
+      discount.targets
+        .filter((t) => t.targetType === DiscountTargetType.product)
+        .map((t) => t.targetId),
     );
     const categoryTargets = new Set(
-      discount.targets.filter((t) => t.targetType === DiscountTargetType.category).map((t) => t.targetId),
+      discount.targets
+        .filter((t) => t.targetType === DiscountTargetType.category)
+        .map((t) => t.targetId),
     );
 
     let eligibleSubtotal = subtotal;

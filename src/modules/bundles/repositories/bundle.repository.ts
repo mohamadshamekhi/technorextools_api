@@ -41,7 +41,13 @@ export class BundleRepository {
   }
 
   async create(
-    data: { title: string; slug: string; description: string | null; bundlePrice: number; isActive: boolean },
+    data: {
+      title: string;
+      slug: string;
+      description: string | null;
+      bundlePrice: number;
+      isActive: boolean;
+    },
     items: Array<{ variantId: string; qty: number }>,
   ): Promise<BundleDetailRow> {
     const created = await this.prisma.bundle.create({ data });
@@ -55,7 +61,13 @@ export class BundleRepository {
 
   async update(
     id: string,
-    data: Partial<{ title: string; slug: string; description: string | null; bundlePrice: number; isActive: boolean }>,
+    data: Partial<{
+      title: string;
+      slug: string;
+      description: string | null;
+      bundlePrice: number;
+      isActive: boolean;
+    }>,
     items?: Array<{ variantId: string; qty: number }>,
   ): Promise<BundleDetailRow> {
     await this.prisma.bundle.update({ where: { id }, data });

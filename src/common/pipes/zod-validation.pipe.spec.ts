@@ -59,7 +59,9 @@ describe('ZodValidationPipe (Persian messages)', () => {
 
   it('keeps the schema’s own Persian message instead of the default', () => {
     const schema = z.object({
-      slug: z.string().regex(/^[a-z0-9-]+$/, 'اسلاگ باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد'),
+      slug: z
+        .string()
+        .regex(/^[a-z0-9-]+$/, 'اسلاگ باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد'),
     });
     try {
       run(schema, { slug: 'ABC!' });

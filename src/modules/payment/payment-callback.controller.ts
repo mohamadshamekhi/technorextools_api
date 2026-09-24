@@ -26,10 +26,7 @@ export class PaymentCallbackController {
 
   @Public()
   @Get('callback')
-  async callback(
-    @Query() query: Record<string, string>,
-    @Res() res: Response,
-  ): Promise<void> {
+  async callback(@Query() query: Record<string, string>, @Res() res: Response): Promise<void> {
     const redirectBase = this.config.get('PAYMENT_RESULT_REDIRECT_URL', { infer: true });
     const orderNumber = query.orderNumber ?? '';
     const authority = query.Authority ?? query.authority ?? '';

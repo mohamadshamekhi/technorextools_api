@@ -1,22 +1,15 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Headers,
-  Param,
-  Patch,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { OptionalAuth } from '../../../common/decorators/optional-auth.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
 import {
   addCartBundleSchema,
+  addCartSparePartSchema,
   addCartItemSchema,
   updateCartItemSchema,
   type AddCartBundleInput,
+  type AddCartSparePartInput,
   type AddCartItemInput,
   type UpdateCartItemInput,
 } from './storefront-cart.schemas';
@@ -63,6 +56,16 @@ export class StorefrontCartController {
     @Body(new ZodValidationPipe(addCartBundleSchema)) body: AddCartBundleInput,
   ): Promise<CartView> {
     return this.cart.addBundle(this.owner(user, token), body.bundleId, body.qty);
+  }
+
+  @OptionalAuth()
+  @Post('spare-parts')
+  addSparePart(
+    @CurrentUser() user: AuthenticatedUser | undefined,
+    @Headers('x-cart-token') token: string | undefined,
+    @Body(new ZodValidationPipe(addCartSparePartSchema)) body: AddCartSparePartInput,
+  ): Promise<CartView> {
+    return this.cart.addSparePart(this.owner(user, token), body.sparePartId, body.qty);
   }
 
   @OptionalAuth()

@@ -90,6 +90,36 @@ export class ProductVariantRepository {
     });
   }
 
+  /** Active variants of a product set, oldest first — storefront cards read the first per product. */
+  findActiveByProductIds(productIds: string[]): Promise<ProductVariant[]> {
+    if (productIds.length === 0) return Promise.resolve([]);
+    return this.prisma.productVariant.findMany({
+      where: { productId: { in: productIds }, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** Variants of a product set — used by bulk price update (only `priceOverride` matters). */
+  findManyByProductIds(productIds: string[]): Promise<ProductVariant[]> {
+    if (productIds.length === 0) return Promise.resolve([]);
+    return this.prisma.productVariant.findMany({ where: { productId: { in: productIds } } });
+  }
+
+  /** Apply a computed `priceOverride` per variant in one transaction (bulk price update). */
+  async bulkUpdatePriceOverrides(
+    updates: Array<{ id: string; priceOverride: number }>,
+  ): Promise<void> {
+    if (updates.length === 0) return;
+    await this.prisma.$transaction(
+      updates.map((u) =>
+        this.prisma.productVariant.update({
+          where: { id: u.id },
+          data: { priceOverride: u.priceOverride },
+        }),
+      ),
+    );
+  }
+
   create(data: Prisma.ProductVariantCreateInput): Promise<ProductVariant> {
     return this.prisma.productVariant.create({ data });
   }

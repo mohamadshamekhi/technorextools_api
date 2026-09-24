@@ -1,6 +1,7 @@
 import {
   CallHandler,
   ExecutionContext,
+  HttpException,
   Injectable,
   Logger,
   NestInterceptor,
@@ -20,13 +21,26 @@ export class HttpLoggerInterceptor implements NestInterceptor {
     const req = http.getRequest<Request & { user?: AuthenticatedUser }>();
     const started = Date.now();
 
-    const finish = (outcome: 'ok' | 'error') => {
+    // On the error path, AllExceptionsFilter hasn't run yet, so res.statusCode
+    // is still Nest's pre-handler default — pull the real status from the error.
+    const finish = (outcome: 'ok' | 'error', error?: unknown) => {
       const res = http.getResponse<Response>();
-      const meta = `${req.method} ${req.originalUrl ?? req.url} ${res.statusCode} ${Date.now() - started}ms${req.user?.id ? ` user=${req.user.id}` : ''}`;
-      if (outcome === 'error' || res.statusCode >= 500) this.logger.error(meta);
+      const status =
+        outcome === 'error'
+          ? error instanceof HttpException
+            ? error.getStatus()
+            : 500
+          : res.statusCode;
+      const meta = `${req.method} ${req.originalUrl ?? req.url} ${status} ${Date.now() - started}ms${req.user?.id ? ` user=${req.user.id}` : ''}`;
+      if (outcome === 'error' || status >= 500) this.logger.error(meta);
       else this.logger.log(meta);
     };
 
-    return next.handle().pipe(tap({ next: () => finish('ok'), error: () => finish('error') }));
+    return next.handle().pipe(
+      tap({
+        next: () => finish('ok'),
+        error: (err: unknown) => finish('error', err),
+      }),
+    );
   }
 }

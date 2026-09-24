@@ -31,7 +31,9 @@ export class AdminActionLogRepository {
     where: Prisma.AdminActionLogWhereInput,
     skip: number,
     take: number,
-  ): Promise<[Array<AdminActionLog & { user: { fullName: string | null; mobile: string } }>, number]> {
+  ): Promise<
+    [Array<AdminActionLog & { user: { fullName: string | null; mobile: string } }>, number]
+  > {
     return Promise.all([
       this.prisma.adminActionLog.findMany({
         where,

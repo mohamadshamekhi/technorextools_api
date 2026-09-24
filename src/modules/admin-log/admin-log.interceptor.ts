@@ -1,10 +1,4 @@
-import {
-  CallHandler,
-  ExecutionContext,
-  Injectable,
-  Logger,
-  NestInterceptor,
-} from '@nestjs/common';
+import { CallHandler, ExecutionContext, Injectable, Logger, NestInterceptor } from '@nestjs/common';
 import type { Request } from 'express';
 import { Observable, tap } from 'rxjs';
 import type { AuthenticatedUser } from '../auth/token.types';
@@ -26,15 +20,16 @@ export class AdminLogInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const req = context.switchToHttp().getRequest<Request & { user?: AuthenticatedUser }>();
-    const shouldLog =
-      MUTATING.has(req.method) && req.path.includes('/backoffice/') && req.user?.id;
+    const shouldLog = MUTATING.has(req.method) && req.path.includes('/backoffice/') && req.user?.id;
 
     if (!shouldLog) return next.handle();
 
     const user = req.user as AuthenticatedUser;
     const params = (req.params ?? {}) as Record<string, string>;
     const entityId =
-      Object.values(params).reverse().find((v) => /^[a-f0-9]{24}$/i.test(v)) ?? null;
+      Object.values(params)
+        .reverse()
+        .find((v) => /^[a-f0-9]{24}$/i.test(v)) ?? null;
     const routePath = (req.route as { path?: string } | undefined)?.path ?? req.path;
 
     return next.handle().pipe(

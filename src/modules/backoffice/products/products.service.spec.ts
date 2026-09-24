@@ -7,6 +7,7 @@ import type { CategoryRepository } from '../../catalog/repositories/category.rep
 import type { ProductRepository } from '../../catalog/repositories/product.repository';
 import type { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
 import type { MediaRepository } from '../../media/repositories/media.repository';
+import type { ProductDocumentRepository } from '../../catalog/repositories/product-document.repository';
 
 const productRow = (over: Partial<Product> = {}): Product => ({
   id: 'p1',
@@ -18,10 +19,14 @@ const productRow = (over: Partial<Product> = {}): Product => ({
   description: null,
   basePrice: 1_000_000,
   isAmazingDeal: false,
+  isFeatured: false,
   isActive: true,
   deletedAt: null,
   createdAt: new Date('2026-01-01T00:00:00Z'),
   updatedAt: new Date('2026-01-01T00:00:00Z'),
+  parts: [],
+  highlights: [],
+  model3dHotspots: [],
   ...over,
 });
 
@@ -38,6 +43,8 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
     paginate: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     replaceAttributeValues: jest.fn().mockResolvedValue(undefined),
     replaceRelated: jest.fn().mockResolvedValue(undefined),
+    findManyByFilter: overrides.findManyByFilter ?? jest.fn().mockResolvedValue([]),
+    bulkUpdateBasePrices: overrides.bulkUpdateBasePrices ?? jest.fn().mockResolvedValue(undefined),
   } as unknown as ProductRepository;
   const variants = {
     findById: jest.fn().mockResolvedValue(null),
@@ -45,6 +52,9 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
     findManyByProductId: jest.fn().mockResolvedValue([]),
     create: jest.fn().mockResolvedValue({}),
     update: jest.fn().mockResolvedValue({}),
+    findManyByProductIds: overrides.findManyByProductIds ?? jest.fn().mockResolvedValue([]),
+    bulkUpdatePriceOverrides:
+      overrides.bulkUpdatePriceOverrides ?? jest.fn().mockResolvedValue(undefined),
   } as unknown as ProductVariantRepository;
   const categories = {
     findById: overrides.categoryFindById ?? jest.fn().mockResolvedValue({ id: 'c1' }),
@@ -68,9 +78,21 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
   const media = {
     findByOwners: jest.fn().mockResolvedValue([]),
     findProductMedia: jest.fn().mockResolvedValue([]),
+    findByIds: jest.fn().mockResolvedValue([]),
   } as unknown as MediaRepository;
+  const documents = {
+    findByProduct: jest.fn().mockResolvedValue([]),
+  } as unknown as ProductDocumentRepository;
   return {
-    service: new ProductsService(products, variants, categories, brands, attributeGroups, media),
+    service: new ProductsService(
+      products,
+      variants,
+      categories,
+      brands,
+      attributeGroups,
+      media,
+      documents,
+    ),
     products,
     variants,
   };
@@ -84,6 +106,7 @@ const createInput = {
   description: null,
   basePrice: 1_000_000,
   isAmazingDeal: false,
+  isFeatured: false,
   isActive: true,
 };
 
@@ -168,6 +191,49 @@ describe('ProductsService', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects duplicate exploded-view part numbers', async () => {
+    const { service } = make();
+    await expect(
+      service.replaceParts('p1', {
+        parts: [
+          { number: 1, name: 'بدنه', code: 'BSD102-P01', sellable: false },
+          { number: 1, name: 'کلید', code: 'BSD102-P02', sellable: true },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('replaces the part list with a set write', async () => {
+    const { service, products } = make();
+    // getById after the write throws (findByIdFull → null); we only care about the update call
+    await service
+      .replaceParts('p1', {
+        parts: [
+          {
+            number: 4,
+            name: 'کلید',
+            code: 'BSD102-P04',
+            sellable: true,
+            hotspot: { x: 12.5, y: 40 },
+          },
+        ],
+      })
+      .catch(() => undefined);
+    expect(products.update).toHaveBeenCalledWith('p1', {
+      parts: {
+        set: [
+          {
+            number: 4,
+            name: 'کلید',
+            code: 'BSD102-P04',
+            sellable: true,
+            hotspot: { x: 12.5, y: 40 },
+          },
+        ],
+      },
+    });
+  });
+
   it('soft-deletes instead of hard-deleting', async () => {
     const { service, products } = make();
     await service.delete('p1');
@@ -177,5 +243,54 @@ describe('ProductsService', () => {
   it('throws not-found when updating a missing product', async () => {
     const { service } = make({ findById: jest.fn().mockResolvedValue(null) });
     await expect(service.update('p1', { title: 'جدید' })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('bulk price update raises basePrice and every set priceOverride by a fixed amount', async () => {
+    const { service, products, variants } = make({
+      findManyByFilter: jest.fn().mockResolvedValue([
+        { id: 'p1', basePrice: 1_000_000 },
+        { id: 'p2', basePrice: 500_000 },
+      ]),
+      findManyByProductIds: jest.fn().mockResolvedValue([
+        { id: 'v1', productId: 'p1', priceOverride: 900_000 },
+        { id: 'v2', productId: 'p1', priceOverride: null }, // no override → not touched
+        { id: 'v3', productId: 'p2', priceOverride: 450_000 },
+      ]),
+    });
+    const result = await service.bulkUpdatePrices({
+      brandId: 'b1',
+      mode: 'fixed',
+      direction: 'increase',
+      value: 200_000,
+    });
+    expect(products.bulkUpdateBasePrices).toHaveBeenCalledWith([
+      { id: 'p1', basePrice: 1_200_000 },
+      { id: 'p2', basePrice: 700_000 },
+    ]);
+    expect(variants.bulkUpdatePriceOverrides).toHaveBeenCalledWith([
+      { id: 'v1', priceOverride: 1_100_000 },
+      { id: 'v3', priceOverride: 650_000 },
+    ]);
+    expect(result).toEqual({ matchedProducts: 2, updatedVariants: 2 });
+  });
+
+  it('bulk price update by percent never drops a price below zero', async () => {
+    const { service, products } = make({
+      findManyByFilter: jest.fn().mockResolvedValue([{ id: 'p1', basePrice: 1_000 }]),
+    });
+    await service.bulkUpdatePrices({
+      categoryId: 'c1',
+      mode: 'percent',
+      direction: 'decrease',
+      value: 100,
+    });
+    expect(products.bulkUpdateBasePrices).toHaveBeenCalledWith([{ id: 'p1', basePrice: 0 }]);
+  });
+
+  it('rejects bulk price update when the scope matches nothing', async () => {
+    const { service } = make({ findManyByFilter: jest.fn().mockResolvedValue([]) });
+    await expect(
+      service.bulkUpdatePrices({ brandId: 'b1', mode: 'fixed', direction: 'increase', value: 1 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

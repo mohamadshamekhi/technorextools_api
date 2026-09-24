@@ -24,7 +24,9 @@ import { SmsService } from './sms.service';
               templatePatternIds: {
                 order_paid: config.get('MELIPAYAMAK_ORDER_PAID_PATTERN_ID', { infer: true }),
                 order_status: config.get('MELIPAYAMAK_ORDER_STATUS_PATTERN_ID', { infer: true }),
-                abandoned_cart: config.get('MELIPAYAMAK_ABANDONED_CART_PATTERN_ID', { infer: true }),
+                abandoned_cart: config.get('MELIPAYAMAK_ABANDONED_CART_PATTERN_ID', {
+                  infer: true,
+                }),
               },
             });
           case 'console':

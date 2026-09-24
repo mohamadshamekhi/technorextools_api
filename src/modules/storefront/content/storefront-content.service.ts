@@ -1,13 +1,23 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import type { MediaOwnerType, Prisma } from '@prisma/client';
 import { ArticleRepository } from '../../content/repositories/article.repository';
 import { BranchRepository } from '../../content/repositories/branch.repository';
 import { SeoMetaRepository } from '../../content/repositories/seo-meta.repository';
 import { SiteSettingRepository } from '../../content/repositories/site-setting.repository';
+import { firstUrlOf } from '../../media/media.gallery';
+import { MediaRepository } from '../../media/repositories/media.repository';
 import type { StorefrontListArticlesQuery } from './storefront-content.schemas';
 
 /** Site settings exposed to unauthenticated clients: this key + any `public_*`. */
 const ALWAYS_PUBLIC_SETTING_KEYS = ['site_title'];
+
+/** `seo/:entityType/:entityId` → the media owner type that holds its OG image. */
+const SEO_OWNER_TYPE: Record<string, MediaOwnerType | undefined> = {
+  article: 'ARTICLE',
+  product: 'PRODUCT',
+  category: 'CATEGORY',
+  brand: 'BRAND',
+};
 
 export interface StorefrontArticleCardView {
   title: string;
@@ -45,6 +55,7 @@ export class StorefrontContentService {
     private readonly branches: BranchRepository,
     private readonly seo: SeoMetaRepository,
     private readonly settings: SiteSettingRepository,
+    private readonly media: MediaRepository,
   ) {}
 
   async listArticles(query: StorefrontListArticlesQuery): Promise<{
@@ -57,11 +68,18 @@ export class StorefrontContentService {
     const [rows, total] = await this.articles.paginate(where, query.skip, query.take, {
       publishedAt: 'desc',
     });
+    const media = await this.media.findByOwners(
+      'ARTICLE',
+      rows.map((a) => a.id),
+    );
     return {
       items: rows.map((a) => ({
         title: a.title,
         slug: a.slug,
-        coverImage: a.coverImage,
+        coverImage: firstUrlOf(
+          media.filter((m) => m.ownerId === a.id),
+          'COVER',
+        ),
         excerpt: a.excerpt,
         publishedAt: a.publishedAt,
       })),
@@ -80,7 +98,7 @@ export class StorefrontContentService {
       id: article.id,
       title: article.title,
       slug: article.slug,
-      coverImage: article.coverImage,
+      coverImage: firstUrlOf(await this.media.findByOwner('ARTICLE', article.id), 'COVER'),
       excerpt: article.excerpt,
       publishedAt: article.publishedAt,
       body: article.body,
@@ -105,9 +123,19 @@ export class StorefrontContentService {
     return {
       metaTitle: meta?.metaTitle ?? null,
       metaDescription: meta?.metaDescription ?? null,
-      ogImage: meta?.ogImage ?? null,
+      ogImage: await this.ogImage(entityType, entityId),
       canonicalUrl: meta?.canonicalUrl ?? null,
     };
+  }
+
+  /**
+   * OG image now lives in `media` (`purpose: OG_IMAGE`) on the entity itself —
+   * only the entity types that have a media owner type can carry one.
+   */
+  private async ogImage(entityType: string, entityId: string): Promise<string | null> {
+    const ownerType = SEO_OWNER_TYPE[entityType.toLowerCase()];
+    if (!ownerType) return null;
+    return firstUrlOf(await this.media.findByOwner(ownerType, entityId), 'OG_IMAGE');
   }
 
   async publicSettings(): Promise<Record<string, string>> {

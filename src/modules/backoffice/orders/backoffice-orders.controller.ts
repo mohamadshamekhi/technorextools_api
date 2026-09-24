@@ -18,6 +18,9 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 const setStatusSchema = z.object({
   status: z.nativeEnum(OrderStatus),
   note: z.string().trim().max(500).optional(),
+  // Shipment info — meaningful when moving to `shipped`; shown by public order tracking.
+  carrier: z.string().trim().max(120).nullable().optional(),
+  trackingNumber: z.string().trim().max(120).nullable().optional(),
 });
 type SetStatusInput = z.infer<typeof setStatusSchema>;
 
@@ -45,7 +48,10 @@ export class BackofficeOrdersController {
     @Param('orderNumber') orderNumber: string,
     @Body(new ZodValidationPipe(setStatusSchema)) body: SetStatusInput,
   ) {
-    return this.orders.setStatus(orderNumber, body.status, user.id, body.note);
+    return this.orders.setStatus(orderNumber, body.status, user.id, body.note, {
+      carrier: body.carrier,
+      trackingNumber: body.trackingNumber,
+    });
   }
 
   /** Confirm cash-on-delivery/in-person payment for a `pending_payment` cash-method order. */

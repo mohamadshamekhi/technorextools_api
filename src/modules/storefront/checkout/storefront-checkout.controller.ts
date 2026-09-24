@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
@@ -10,6 +10,7 @@ import {
 } from './storefront-checkout.schemas';
 import {
   StorefrontCheckoutService,
+  type CheckoutInFlightView,
   type CheckoutQuote,
   type CheckoutStartResult,
 } from './storefront-checkout.service';
@@ -35,6 +36,16 @@ export class StorefrontCheckoutController {
     @Body(new ZodValidationPipe(startCheckoutSchema)) body: StartCheckoutInput,
   ): Promise<CheckoutStartResult> {
     return this.checkout.start(user.id, user.mobile, body);
+  }
+
+  /**
+   * Is a checkout already running for this user? `{ locked, order }` — `locked` while
+   * another submit holds the cart lock, `order` = the pending order it produced (with
+   * `expiresAt`). Poll this after a 409 instead of unlocking the button on a timer.
+   */
+  @Get('in-flight')
+  inFlight(@CurrentUser() user: AuthenticatedUser): Promise<CheckoutInFlightView> {
+    return this.checkout.inFlight(user.id);
   }
 
   /** Re-open payment for an existing pending order (retry after a failed attempt). */

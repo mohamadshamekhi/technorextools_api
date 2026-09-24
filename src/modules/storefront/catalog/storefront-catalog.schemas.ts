@@ -14,6 +14,10 @@ export const storefrontListProductsQuerySchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((v) => (v === undefined ? undefined : v === 'true')),
+  isFeatured: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   sort: z.enum(['newest', 'price-asc', 'price-desc']).default('newest'),
   // Faceted filter — pairs of <attributeId>:<value>, e.g. attrs=66f1..:500,66f2..:Red
   attrs: z
@@ -55,3 +59,8 @@ export const storefrontCreateCommentSchema = z.object({
   body: z.string().trim().min(3).max(2000),
 });
 export type StorefrontCreateCommentInput = z.infer<typeof storefrontCreateCommentSchema>;
+
+export const storefrontCreateQuestionSchema = z.object({
+  question: z.string().trim().min(5, 'متن پرسش خیلی کوتاه است').max(1000),
+});
+export type StorefrontCreateQuestionInput = z.infer<typeof storefrontCreateQuestionSchema>;

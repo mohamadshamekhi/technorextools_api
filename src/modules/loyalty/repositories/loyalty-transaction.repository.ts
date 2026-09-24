@@ -15,6 +15,15 @@ export class LoyaltyTransactionRepository {
     return rows._sum.points ?? 0;
   }
 
+  /** Lifetime earned points (ignores redemptions) — basis for loyalty tiers. */
+  async lifetimeEarned(userId: string): Promise<number> {
+    const rows = await this.prisma.loyaltyTransaction.aggregate({
+      where: { userId, type: LoyaltyType.earn },
+      _sum: { points: true },
+    });
+    return rows._sum.points ?? 0;
+  }
+
   listByUser(userId: string, skip: number, take: number): Promise<[LoyaltyTransaction[], number]> {
     return Promise.all([
       this.prisma.loyaltyTransaction.findMany({

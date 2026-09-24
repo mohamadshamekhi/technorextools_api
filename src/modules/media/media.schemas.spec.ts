@@ -22,7 +22,12 @@ describe('uploadMediaSchema', () => {
       isMain: 'true',
       sortOrder: '3',
     });
-    expect(parsed).toMatchObject({ ownerType: 'PRODUCT', purpose: 'GALLERY', isMain: true, sortOrder: 3 });
+    expect(parsed).toMatchObject({
+      ownerType: 'PRODUCT',
+      purpose: 'GALLERY',
+      isMain: true,
+      sortOrder: 3,
+    });
   });
 
   it('rejects ownerId without ownerType', () => {

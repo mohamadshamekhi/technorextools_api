@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
+import { mediaIdsSchema } from '../../media/media.schemas';
 import { StorefrontTicketsService } from './storefront-tickets.service';
 
 const listQuerySchema = z.object({
@@ -14,12 +15,13 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 const createSchema = z.object({
   subject: z.string().trim().min(3).max(160),
   body: z.string().trim().min(3).max(4000),
+  mediaIds: mediaIdsSchema.default([]),
 });
 type CreateInput = z.infer<typeof createSchema>;
 
 const replySchema = z.object({
   body: z.string().trim().min(1).max(4000),
-  attachmentUrl: z.string().url().max(500).optional(),
+  mediaIds: mediaIdsSchema.default([]),
 });
 type ReplyInput = z.infer<typeof replySchema>;
 
@@ -46,7 +48,7 @@ export class StorefrontTicketsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body(new ZodValidationPipe(createSchema)) body: CreateInput,
   ) {
-    return this.tickets.create(user.id, body.subject, body.body);
+    return this.tickets.create(user.id, body.subject, body.body, body.mediaIds);
   }
 
   @Post(':id/messages')
@@ -55,6 +57,6 @@ export class StorefrontTicketsController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(replySchema)) body: ReplyInput,
   ) {
-    return this.tickets.reply(user.id, id, body.body, body.attachmentUrl);
+    return this.tickets.reply(user.id, id, body.body, body.mediaIds);
   }
 }

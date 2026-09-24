@@ -32,9 +32,7 @@ export class BackofficeUsersController {
 
   @RequirePermissions('users.manage')
   @Post()
-  create(
-    @Body(new ZodValidationPipe(createUserSchema)) body: CreateUserInput,
-  ): Promise<UserView> {
+  create(@Body(new ZodValidationPipe(createUserSchema)) body: CreateUserInput): Promise<UserView> {
     return this.users.create(body);
   }
 

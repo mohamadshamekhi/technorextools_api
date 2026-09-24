@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { BundleRepository, type BundleDetailRow } from '../../bundles/repositories/bundle.repository';
+import {
+  BundleRepository,
+  type BundleDetailRow,
+} from '../../bundles/repositories/bundle.repository';
 import { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
 
 interface BundleInput {
@@ -46,7 +49,14 @@ export class BackofficeBundlesService {
     return toView(bundle);
   }
 
-  async create(input: BundleInput & { title: string; slug: string; bundlePrice: number; items: Array<{ variantId: string; qty: number }> }) {
+  async create(
+    input: BundleInput & {
+      title: string;
+      slug: string;
+      bundlePrice: number;
+      items: Array<{ variantId: string; qty: number }>;
+    },
+  ) {
     if (await this.bundles.findBySlug(input.slug)) {
       throw new BadRequestException('این اسلاگ قبلاً استفاده شده است');
     }

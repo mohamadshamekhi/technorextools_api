@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { DiscountTargetType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 const withTargets = { targets: true } satisfies Prisma.DiscountInclude;
@@ -71,6 +71,31 @@ export class DiscountRepository {
   async delete(id: string): Promise<void> {
     await this.prisma.discountTarget.deleteMany({ where: { discountId: id } });
     await this.prisma.discount.delete({ where: { id } });
+  }
+
+  /**
+   * Currently-usable discounts for a customer: active + within the time window,
+   * and either targeted at this user or fully public (no targets at all).
+   * Product/category-only targeted codes are excluded — they aren't "for" this customer.
+   */
+  findActiveForUser(userId: string, now: Date): Promise<DiscountWithTargets[]> {
+    return this.prisma.discount.findMany({
+      where: {
+        isActive: true,
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+          { OR: [{ endsAt: null }, { endsAt: { gte: now } }] },
+          {
+            OR: [
+              { targets: { some: { targetType: DiscountTargetType.user, targetId: userId } } },
+              { targets: { none: {} } },
+            ],
+          },
+        ],
+      },
+      include: withTargets,
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   /** Atomically bump `usedCount` when a discounted order is placed. */

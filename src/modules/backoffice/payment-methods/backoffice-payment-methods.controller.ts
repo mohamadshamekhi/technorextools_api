@@ -55,10 +55,7 @@ export class BackofficePaymentMethodsController {
 
   @RequirePermissions('payment-methods.manage')
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateSchema)) body: UpdateInput,
-  ) {
+  update(@Param('id') id: string, @Body(new ZodValidationPipe(updateSchema)) body: UpdateInput) {
     return this.paymentMethods.update(id, body);
   }
 

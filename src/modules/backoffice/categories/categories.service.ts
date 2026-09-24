@@ -24,6 +24,7 @@ export interface CategoryView {
   parentTitle: string | null;
   title: string;
   slug: string;
+  imageUrl: string | null;
   sortOrder: number;
   isActive: boolean;
   childrenCount: number;
@@ -36,7 +37,9 @@ export interface CategoryTreeNode {
   id: string;
   title: string;
   slug: string;
+  imageUrl: string | null;
   sortOrder: number;
+  isActive: boolean;
   children: CategoryTreeNode[];
 }
 
@@ -82,7 +85,7 @@ export class CategoriesService {
   }
 
   async tree(): Promise<CategoryTreeNode[]> {
-    const rows = await this.categories.findMany({ isActive: true });
+    const rows = await this.categories.findMany();
     return buildTree(rows);
   }
 
@@ -94,6 +97,7 @@ export class CategoriesService {
     const category = await this.categories.create({
       title: input.title,
       slug: input.slug,
+      imageUrl: input.imageUrl,
       sortOrder: input.sortOrder,
       isActive: input.isActive,
       ...(input.parentId ? { parent: { connect: { id: input.parentId } } } : {}),
@@ -123,10 +127,11 @@ export class CategoriesService {
         parentConnect = { parent: { connect: { id: input.parentId } } };
       }
     }
-    const { title, slug, sortOrder, isActive } = input;
+    const { title, slug, imageUrl, sortOrder, isActive } = input;
     const updated = await this.categories.update(id, {
       ...(title !== undefined ? { title } : {}),
       ...(slug !== undefined ? { slug } : {}),
+      ...(imageUrl !== undefined ? { imageUrl } : {}),
       ...(sortOrder !== undefined ? { sortOrder } : {}),
       ...(isActive !== undefined ? { isActive } : {}),
       ...parentConnect,
@@ -291,6 +296,7 @@ function toCategoryView(
     parentTitle: category.parent?.title ?? null,
     title: category.title,
     slug: category.slug,
+    imageUrl: category.imageUrl,
     sortOrder: category.sortOrder,
     isActive: category.isActive,
     childrenCount: category._count.children,
@@ -307,7 +313,9 @@ function buildTree(rows: Category[]): CategoryTreeNode[] {
       id: row.id,
       title: row.title,
       slug: row.slug,
+      imageUrl: row.imageUrl,
       sortOrder: row.sortOrder,
+      isActive: row.isActive,
       children: [],
     });
   }

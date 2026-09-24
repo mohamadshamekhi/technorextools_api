@@ -31,12 +31,34 @@ export class MediaRepository {
     });
   }
 
+  findByIds(ids: string[]) {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.media.findMany({ where: { id: { in: ids } } });
+  }
+
   /** Media for many owners of the same type — used to stitch galleries into list views. */
   findByOwners(ownerType: MediaOwnerType, ownerIds: string[]) {
     if (ownerIds.length === 0) return Promise.resolve([]);
     return this.prisma.media.findMany({
       where: { ownerType, ownerId: { in: ownerIds } },
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  /** Rows that are still unattached (uploaded but not yet bound to an owner). */
+  findUnattachedByIds(ids: string[], uploadedById: string) {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.media.findMany({
+      where: { id: { in: ids }, ownerId: null, uploadedById },
+    });
+  }
+
+  /** Bind a batch of uploaded rows to their owner once the owner row exists. */
+  async attachToOwner(ids: string[], ownerType: MediaOwnerType, ownerId: string): Promise<void> {
+    if (ids.length === 0) return;
+    await this.prisma.media.updateMany({
+      where: { id: { in: ids } },
+      data: { ownerType, ownerId },
     });
   }
 
@@ -56,7 +78,12 @@ export class MediaRepository {
   }
 
   /** Drop the `isMain` flag from every other row of the same owner + purpose. */
-  clearMainFlag(ownerType: MediaOwnerType, ownerId: string, purpose: MediaPurpose, exceptId?: string) {
+  clearMainFlag(
+    ownerType: MediaOwnerType,
+    ownerId: string,
+    purpose: MediaPurpose,
+    exceptId?: string,
+  ) {
     return this.prisma.media.updateMany({
       where: {
         ownerType,

@@ -11,7 +11,10 @@ export const createAddressSchema = z.object({
   province: z.string().trim().min(2).max(60),
   city: z.string().trim().min(2).max(60),
   fullAddress: z.string().trim().min(5).max(500),
-  postalCode: z.string().trim().regex(/^\d{10}$/, 'کد پستی باید ۱۰ رقم باشد'),
+  postalCode: z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/, 'کد پستی باید ۱۰ رقم باشد'),
   isDefault: z.boolean().default(false),
 });
 export type CreateAddressInput = z.infer<typeof createAddressSchema>;

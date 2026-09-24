@@ -4,6 +4,8 @@ import { ArticleRepository } from './repositories/article.repository';
 import { BranchRepository } from './repositories/branch.repository';
 import { SeoMetaRepository } from './repositories/seo-meta.repository';
 import { SiteSettingRepository } from './repositories/site-setting.repository';
+import { ContactMessageRepository } from './repositories/contact-message.repository';
+import { NewsletterSubscriberRepository } from './repositories/newsletter-subscriber.repository';
 
 /**
  * Content domain core — repositories for public-site data (blog articles,
@@ -20,6 +22,8 @@ import { SiteSettingRepository } from './repositories/site-setting.repository';
     SeoMetaRepository,
     SiteSettingRepository,
     AppSettingsService,
+    ContactMessageRepository,
+    NewsletterSubscriberRepository,
   ],
   exports: [
     ArticleRepository,
@@ -27,6 +31,8 @@ import { SiteSettingRepository } from './repositories/site-setting.repository';
     SeoMetaRepository,
     SiteSettingRepository,
     AppSettingsService,
+    ContactMessageRepository,
+    NewsletterSubscriberRepository,
   ],
 })
 export class ContentModule {}

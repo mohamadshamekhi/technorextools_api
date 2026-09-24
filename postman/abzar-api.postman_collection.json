@@ -1067,6 +1067,52 @@
 							]
 						},
 						{
+							"name": "Import Brands (crawler)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"source\": \"https://example-tools.ir\",\n  \"dryRun\": false,\n  \"replaceLogo\": false,\n  \"brands\": [\n    {\n      \"title\": \"Bosch\",\n      \"slug\": \"bosch\",\n      \"isExclusiveDistributor\": false,\n      \"authenticityNote\": \"وارداتی اصل آلمان\",\n      \"logoSourceUrl\": \"https://example-tools.ir/img/brands/bosch.png\"\n    },\n    {\n      \"title\": \"Makita\",\n      \"slug\": \"makita\",\n      \"logoSourceUrl\": \"https://example-tools.ir/img/brands/makita.png\"\n    },\n    {\n      \"title\": \"رونیکس\",\n      \"slug\": \"ronix\"\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/brands/import",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"brands",
+										"import"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `brands.manage`. Body: `importBrandsSchema` (`brands[]` ≤ ۲۰۰، هر آیتم `importBrandItemSchema`). Upsert بر اساس `slug`؛ `slug` اختیاری است و در نبودش از `title` لاتین ساخته می‌شود (عنوان فارسی بدون `slug` → همان آیتم failed). `logoSourceUrl` آدرس تصویر در سایت مبدأ است — API خودش دانلود، به WebP تبدیل و به‌صورت `Media` (`ownerType=BRAND`, `purpose=LOGO`) ذخیره می‌کند (SSRF-guard: فقط http/https و IP عمومی). برندی که لوگو دارد دست نمی‌خورد مگر `replaceLogo: true`. `dryRun: true` فقط گزارش می‌دهد. → `{ dryRun, total, created, updated, unchanged, failed, items: [{ title, slug, status, brandId, logo, error }] }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('201 ok', () => pm.expect(pm.response.code).to.eql(201));",
+											"try { const b = pm.response.json(); const hit = (b.items||[]).find(i => i.brandId); if (hit) pm.environment.set('brandId', hit.brandId); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
 							"name": "Update Brand",
 							"request": {
 								"method": "PATCH",

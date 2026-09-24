@@ -83,9 +83,11 @@ model User {
   carts                Cart[]
   orders               Order[]
   comments             Comment[]
+  productQuestions     ProductQuestion[]
   tickets              Ticket[]
   ticketMessages       TicketMessage[]
   wishlist             WishlistItem[]
+  notifications        Notification[]
   loyaltyTransactions  LoyaltyTransaction[]
   referralsMade        Referral[]           @relation("referrer")
   referralReceived     Referral?            @relation("referred")
@@ -171,6 +173,7 @@ model Category {
   children  Category[] @relation("categoryTree")
   title     String
   slug      String   @unique
+  imageUrl  String?
   sortOrder Int      @default(0)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -224,7 +227,6 @@ model Brand {
   id                     String   @id @default(auto()) @map("_id") @db.ObjectId
   title                  String
   slug                   String   @unique
-  logoUrl                String?
   isExclusiveDistributor Boolean  @default(false)
   authenticityNote       String?
   createdAt              DateTime @default(now())
@@ -247,10 +249,18 @@ model Product {
   description   String? // rich text
   basePrice     Int // Toman, integer
   isAmazingDeal Boolean  @default(false)
+  isFeatured    Boolean  @default(false)
   isActive      Boolean  @default(true)
   deletedAt     DateTime? // soft delete
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  // Exploded-view part list (embedded; numbers match the EXPLODED_VIEW media image).
+  // Missing on old documents → Prisma returns [].
+  parts         ProductPart[]
+  // Spec highlights shown as icon cards on the product page (embedded).
+  highlights    ProductHighlight[]
+  // Labelled points on the glTF/GLB model (embedded) — 3D, unlike `parts.hotspot`.
+  model3dHotspots ProductModel3dHotspot[]
 
   attributeValues ProductAttributeValue[]
   variants        ProductVariant[]
@@ -258,11 +268,127 @@ model Product {
   wishlistedBy    WishlistItem[]
   relatedFrom     RelatedProduct[]        @relation("relatedFrom")
   relatedTo       RelatedProduct[]        @relation("relatedTo")
+  spareParts      SparePartCompatibility[]
+  documents       ProductDocument[]
+  questions       ProductQuestion[]
 
   @@index([categoryId])
   @@index([brandId])
   @@index([isAmazingDeal])
+  @@index([isFeatured])
   @@map("products")
+}
+
+/// One numbered part on a product's exploded-view image.
+type ProductPart {
+  number   Int // part number printed on the exploded view, ≥ 1, unique per product
+  name     String
+  code     String // e.g. BSD102-P04
+  sellable Boolean @default(false) // storefront shows «سفارش قطعه» when true
+  hotspot  ProductPartHotspot? // position of the number on the exploded-view image
+}
+
+/// One icon card in the product's highlight strip.
+type ProductHighlight {
+  icon  String // frontend icon key, e.g. `motor`
+  value String // e.g. «۱۲ وات»
+  label String // e.g. «توان موتور»
+}
+
+/// A labelled point in the glTF/GLB model's own coordinate space.
+type ProductModel3dHotspot {
+  key         String // stable id used by the viewer
+  label       String
+  description String?
+  x           Float
+  y           Float
+  z           Float
+}
+
+/// Percent coordinates (0–100) from the image's top-left corner.
+type ProductPartHotspot {
+  x Float
+  y Float
+}
+
+/// A downloadable document of a product (catalogue, manual, datasheet, certificate).
+/// The file itself is a `Media` row; this carries the catalogue metadata around it.
+model ProductDocument {
+  id        String              @id @default(auto()) @map("_id") @db.ObjectId
+  productId String              @db.ObjectId
+  product   Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mediaId   String              @db.ObjectId
+  type      ProductDocumentType
+  title     String
+  locale    String              @default("fa")
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@index([productId])
+  @@map("product_documents")
+}
+
+enum ProductDocumentType {
+  catalog
+  manual
+  datasheet
+  certificate
+}
+
+/// Customer question on a product page, answered by staff (moderated like comments).
+model ProductQuestion {
+  id           String                @id @default(auto()) @map("_id") @db.ObjectId
+  productId    String                @db.ObjectId
+  product      Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId       String                @db.ObjectId
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question     String
+  answer       String?
+  answeredById String?               @db.ObjectId
+  answeredAt   DateTime?
+  status       ProductQuestionStatus @default(pending)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([productId, status])
+  @@index([userId])
+  @@map("product_questions")
+}
+
+enum ProductQuestionStatus {
+  pending
+  approved
+  rejected
+}
+
+model ContactMessage {
+  id        String               @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  phone     String
+  subject   String?
+  message   String
+  status    ContactMessageStatus @default(new)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([status, createdAt])
+  @@map("contact_messages")
+}
+
+enum ContactMessageStatus {
+  new
+  handled
+}
+
+model NewsletterSubscriber {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  contact      String   @unique // email or Iranian mobile, normalised
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("newsletter_subscribers")
 }
 
 model ProductAttributeValue {
@@ -317,6 +443,7 @@ enum MediaKind {
 enum MediaOwnerType {
   PRODUCT
   PRODUCT_VARIANT
+  SPARE_PART
   BRAND
   ARTICLE
   CATEGORY
@@ -330,6 +457,7 @@ enum MediaPurpose {
   LOGO
   DATASHEET
   MODEL_3D
+  EXPLODED_VIEW
   ATTACHMENT
   OG_IMAGE
 }
@@ -377,6 +505,9 @@ model Cart {
   user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
   sessionToken String     @unique
   status       CartStatus @default(active)
+  /// Short-lived checkout mutex — set atomically by `POST /storefront/checkout` so a
+  /// double-submit can't place two orders from the same cart.
+  checkoutLockUntil DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -402,6 +533,8 @@ model CartItem {
   variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
   bundleId      String?        @db.ObjectId
   bundle        Bundle?        @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  sparePartId   String?        @db.ObjectId
+  sparePart     SparePart?     @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
   qty           Int
   reservedUntil DateTime?
   createdAt     DateTime       @default(now())
@@ -521,6 +654,9 @@ model Order {
   shippingCost     Int      @default(0)
   total            Int
   status           OrderStatus @default(pending_payment)
+  /// Shipment info, set by an admin when the order moves to `shipped`.
+  carrier          String?
+  trackingNumber   String?
   placedAt         DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -579,6 +715,8 @@ model OrderItem {
   variant      ProductVariant? @relation(fields: [variantId], references: [id])
   bundleId     String? @db.ObjectId
   bundle       Bundle? @relation(fields: [bundleId], references: [id])
+  sparePartId  String? @db.ObjectId
+  sparePart    SparePart? @relation(fields: [sparePartId], references: [id])
   qty          Int
   unitPrice    Int
   productTitle String // snapshot
@@ -656,6 +794,45 @@ model BundleItem {
   @@map("bundle_items")
 }
 
+/// Spare part — sold separately from products (never in the product listing) and
+/// declared compatible with any number of products. Priced/stocked directly (no
+/// variants); images live in `Media` (`ownerType: SPARE_PART`).
+model SparePart {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  slug        String    @unique
+  partNumber  String?   @unique // manufacturer / internal part code
+  shortDesc   String?
+  description String? // rich text
+  price       Int // Toman, integer
+  stockQty    Int       @default(0)
+  weightGrams Int? // shipping: used by `by_weight` methods
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime? // soft delete
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  compatibleProducts SparePartCompatibility[]
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+
+  @@map("spare_parts")
+}
+
+/// Junction: a spare part fits a product (many-to-many). Managed by the
+/// `SparePart` aggregate's repository.
+model SparePartCompatibility {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  sparePartId String    @db.ObjectId
+  sparePart   SparePart @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
+  productId   String    @db.ObjectId
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([sparePartId, productId])
+  @@index([productId])
+  @@map("spare_part_compatibilities")
+}
+
 model PriceTier {
   id        String         @id @default(auto()) @map("_id") @db.ObjectId
   variantId String         @db.ObjectId
@@ -724,7 +901,6 @@ model TicketMessage {
   senderUserId  String            @db.ObjectId
   senderUser    User              @relation(fields: [senderUserId], references: [id])
   body          String
-  attachmentUrl String?
   createdAt     DateTime          @default(now())
 
   @@index([ticketId])
@@ -746,6 +922,28 @@ model WishlistItem {
 
   @@unique([userId, productId])
   @@map("wishlists")
+}
+
+model Notification {
+  id        String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String           @db.ObjectId
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  order_shipped
+  order_delivered
+  order_cancelled
+  discount
+  system
 }
 
 model LoyaltyTransaction {
@@ -845,7 +1043,6 @@ model SeoMeta {
   entityId        String   @db.ObjectId
   metaTitle       String?
   metaDescription String?
-  ogImage         String?
   canonicalUrl    String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -868,7 +1065,6 @@ model Article {
   id           String    @id @default(auto()) @map("_id") @db.ObjectId
   title        String
   slug         String    @unique
-  coverImage   String?
   excerpt      String?
   body         String // rich text
   authorUserId String?   @db.ObjectId

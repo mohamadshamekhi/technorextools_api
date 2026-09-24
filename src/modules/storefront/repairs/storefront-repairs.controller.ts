@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
+import { mediaIdsSchema } from '../../media/media.schemas';
 import { StorefrontRepairsService } from './storefront-repairs.service';
 
 const listQuerySchema = z.object({
@@ -14,6 +15,7 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 const createSchema = z.object({
   issueDescription: z.string().trim().min(10).max(2000),
   warrantySerial: z.string().trim().min(1).max(120).optional(),
+  mediaIds: mediaIdsSchema.default([]),
 });
 type CreateInput = z.infer<typeof createSchema>;
 
@@ -40,6 +42,6 @@ export class StorefrontRepairsController {
     @CurrentUser() user: AuthenticatedUser,
     @Body(new ZodValidationPipe(createSchema)) body: CreateInput,
   ) {
-    return this.repairs.create(user.id, body.issueDescription, body.warrantySerial);
+    return this.repairs.create(user.id, body.issueDescription, body.warrantySerial, body.mediaIds);
   }
 }

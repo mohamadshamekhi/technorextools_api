@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { BackofficeMediaController } from './backoffice-media.controller';
+import { StorefrontMediaController } from './storefront-media.controller';
 import { MediaService } from './media.service';
 import { MediaRepository } from './repositories/media.repository';
 
@@ -10,7 +11,7 @@ import { MediaRepository } from './repositories/media.repository';
  */
 @Global()
 @Module({
-  controllers: [BackofficeMediaController],
+  controllers: [BackofficeMediaController, StorefrontMediaController],
   providers: [MediaService, MediaRepository],
   exports: [MediaService, MediaRepository],
 })

@@ -21,9 +21,13 @@ import { ContentModule } from './modules/content/content.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { PaymentMethodsModule } from './modules/payment-methods/payment-methods.module';
 import { BundlesModule } from './modules/bundles/bundles.module';
+import { SparePartsModule } from './modules/spare-parts/spare-parts.module';
+import { BackofficeSparePartsModule } from './modules/backoffice/spare-parts/backoffice-spare-parts.module';
+import { StorefrontSparePartsModule } from './modules/storefront/spare-parts/storefront-spare-parts.module';
 import { WarrantyModule } from './modules/warranty/warranty.module';
 import { AddressModule } from './modules/address/address.module';
 import { WishlistModule } from './modules/wishlist/wishlist.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { DiscountsModule } from './modules/discounts/discounts.module';
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { ReferralModule } from './modules/referral/referral.module';
@@ -36,6 +40,9 @@ import { PaymentCallbackModule } from './modules/payment/payment-callback.module
 import { BackofficeOrdersModule } from './modules/backoffice/orders/backoffice-orders.module';
 import { BackofficeShippingModule } from './modules/backoffice/shipping/backoffice-shipping.module';
 import { BackofficePaymentMethodsModule } from './modules/backoffice/payment-methods/backoffice-payment-methods.module';
+import { BackofficeProductQuestionsModule } from './modules/backoffice/product-questions/backoffice-product-questions.module';
+import { BackofficeInboxModule } from './modules/backoffice/inbox/backoffice-inbox.module';
+import { StorefrontContactModule } from './modules/storefront/contact/storefront-contact.module';
 import { BackofficeDiscountsModule } from './modules/backoffice/discounts/backoffice-discounts.module';
 import { BackofficeCommentsModule } from './modules/backoffice/comments/backoffice-comments.module';
 import { BackofficeTicketsModule } from './modules/backoffice/tickets/backoffice-tickets.module';
@@ -59,6 +66,7 @@ import { StorefrontPaymentMethodsModule } from './modules/storefront/payment-met
 import { StorefrontWarrantyModule } from './modules/storefront/warranty/storefront-warranty.module';
 import { StorefrontAddressesModule } from './modules/storefront/addresses/storefront-addresses.module';
 import { StorefrontWishlistModule } from './modules/storefront/wishlist/storefront-wishlist.module';
+import { StorefrontNotificationsModule } from './modules/storefront/notifications/storefront-notifications.module';
 import { StorefrontCheckoutModule } from './modules/storefront/checkout/storefront-checkout.module';
 import { StorefrontOrdersModule } from './modules/storefront/orders/storefront-orders.module';
 import { StorefrontDiscountsModule } from './modules/storefront/discounts/storefront-discounts.module';
@@ -77,9 +85,11 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     ShippingModule,
     PaymentMethodsModule,
     BundlesModule,
+    SparePartsModule,
     WarrantyModule,
     AddressModule,
     WishlistModule,
+    NotificationsModule,
     DiscountsModule,
     LoyaltyModule,
     ReferralModule,
@@ -121,12 +131,16 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     BackofficeShippingModule,
     BackofficePaymentMethodsModule,
     BackofficeDiscountsModule,
+    BackofficeProductQuestionsModule,
+    BackofficeInboxModule,
     BackofficeCommentsModule,
     BackofficeTicketsModule,
     BackofficeWarrantiesModule,
     BackofficeContentModule,
     BackofficeSettingsModule,
     BackofficeBundlesModule,
+    BackofficeSparePartsModule,
+    StorefrontSparePartsModule,
     BackofficeLoyaltyModule,
     BackofficeReportsModule,
     MediaModule,
@@ -140,9 +154,11 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     StorefrontWarrantyModule,
     StorefrontAddressesModule,
     StorefrontWishlistModule,
+    StorefrontNotificationsModule,
     StorefrontCheckoutModule,
     StorefrontOrdersModule,
     StorefrontDiscountsModule,
+    StorefrontContactModule,
     StorefrontLoyaltyModule,
     StorefrontTicketsModule,
     StorefrontRepairsModule,

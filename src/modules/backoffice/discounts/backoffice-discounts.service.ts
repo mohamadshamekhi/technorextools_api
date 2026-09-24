@@ -1,8 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { DiscountRepository, type DiscountWithTargets } from '../../discounts/repositories/discount.repository';
+import {
+  DiscountRepository,
+  type DiscountWithTargets,
+} from '../../discounts/repositories/discount.repository';
 import { DiscountUsageRepository } from '../../discounts/repositories/discount-usage.repository';
-import type { CreateDiscountInput, ListDiscountsQuery, UpdateDiscountInput } from './backoffice-discounts.schemas';
+import { NotificationRepository } from '../../notifications/repositories/notification.repository';
+import type {
+  CreateDiscountInput,
+  ListDiscountsQuery,
+  UpdateDiscountInput,
+} from './backoffice-discounts.schemas';
 
 type DiscountCore = Omit<CreateDiscountInput, 'targets'>;
 
@@ -29,6 +37,7 @@ export class BackofficeDiscountsService {
   constructor(
     private readonly discounts: DiscountRepository,
     private readonly usages: DiscountUsageRepository,
+    private readonly notifications: NotificationRepository,
   ) {}
 
   async list(query: ListDiscountsQuery) {
@@ -68,19 +77,38 @@ export class BackofficeDiscountsService {
       },
       targets,
     );
+    await this.notifyTargetedUsers(created, []);
     return toView(created);
   }
 
   async update(id: string, input: UpdateDiscountInput) {
-    await this.getById(id);
+    const before = await this.getById(id);
     const { targets, ...core } = input;
     const updated = await this.discounts.update(id, this.toData(core), targets);
+    await this.notifyTargetedUsers(updated, userTargetIds(before.targets));
     return toView(updated);
   }
 
   async remove(id: string): Promise<void> {
     await this.getById(id);
     await this.discounts.delete(id);
+  }
+
+  /** In-app `discount` notification to users newly targeted by an active code. */
+  private async notifyTargetedUsers(
+    d: DiscountWithTargets,
+    alreadyNotified: string[],
+  ): Promise<void> {
+    if (!d.isActive) return;
+    const skip = new Set(alreadyNotified);
+    const userIds = userTargetIds(d.targets).filter((id) => !skip.has(id));
+    const value =
+      d.amountType === 'percent' ? `${d.value}٪` : `${d.value.toLocaleString('fa-IR')} تومان`;
+    await this.notifications.createForUsers(userIds, {
+      type: 'discount',
+      title: 'کد تخفیف ویژه شما',
+      body: `کد ${d.code} با ${value} تخفیف برای شما فعال شد.`,
+    });
   }
 
   private toData(core: Partial<DiscountCore>): Prisma.DiscountUpdateInput {
@@ -97,4 +125,8 @@ export class BackofficeDiscountsService {
       ...(core.isActive !== undefined ? { isActive: core.isActive } : {}),
     };
   }
+}
+
+function userTargetIds(targets: Array<{ targetType: string; targetId: string }>): string[] {
+  return targets.filter((t) => t.targetType === 'user').map((t) => t.targetId);
 }

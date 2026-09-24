@@ -36,7 +36,6 @@ const storefrontProductInclude = {
       id: true,
       title: true,
       slug: true,
-      logoUrl: true,
       isExclusiveDistributor: true,
       authenticityNote: true,
     },
@@ -109,6 +108,23 @@ export class ProductRepository {
 
   softDelete(id: string): Promise<Product> {
     return this.prisma.product.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  /** Row set for bulk price update — id + current price only. */
+  findManyByFilter(
+    where: Prisma.ProductWhereInput,
+  ): Promise<Array<Pick<Product, 'id' | 'basePrice'>>> {
+    return this.prisma.product.findMany({ where, select: { id: true, basePrice: true } });
+  }
+
+  /** Apply a computed `basePrice` per product in one transaction (bulk price update). */
+  async bulkUpdateBasePrices(updates: Array<{ id: string; basePrice: number }>): Promise<void> {
+    if (updates.length === 0) return;
+    await this.prisma.$transaction(
+      updates.map((u) =>
+        this.prisma.product.update({ where: { id: u.id }, data: { basePrice: u.basePrice } }),
+      ),
+    );
   }
 
   countByBrandId(brandId: string): Promise<number> {

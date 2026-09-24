@@ -51,7 +51,9 @@ describe('DiscountEvaluatorService', () => {
       makeDiscount({
         amountType: DiscountAmountType.fixed,
         value: 999_999,
-        targets: [{ targetType: DiscountTargetType.product, targetId: 'p2', discountId: 'd1', id: 't1' }],
+        targets: [
+          { targetType: DiscountTargetType.product, targetId: 'p2', discountId: 'd1', id: 't1' },
+        ],
       }),
     );
     const result = await svc.evaluate('SAVE', 'u1', lines);
@@ -59,7 +61,9 @@ describe('DiscountEvaluatorService', () => {
   });
 
   it('rejects an unknown or inactive code', async () => {
-    await expect(build(null).evaluate('NOPE', 'u1', lines)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(build(null).evaluate('NOPE', 'u1', lines)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
     await expect(
       build(makeDiscount({ isActive: false })).evaluate('SAVE', 'u1', lines),
     ).rejects.toBeInstanceOf(BadRequestException);
@@ -77,7 +81,9 @@ describe('DiscountEvaluatorService', () => {
   it('rejects a code whose product targets match nothing in the cart', async () => {
     const svc = build(
       makeDiscount({
-        targets: [{ targetType: DiscountTargetType.product, targetId: 'other', discountId: 'd1', id: 't1' }],
+        targets: [
+          { targetType: DiscountTargetType.product, targetId: 'other', discountId: 'd1', id: 't1' },
+        ],
       }),
     );
     await expect(svc.evaluate('SAVE', 'u1', lines)).rejects.toThrow('اعمال نمی‌شود');

@@ -14,6 +14,7 @@ const cartItemInclude = {
       items: { include: { variant: { include: { product: { select: { title: true } } } } } },
     },
   },
+  sparePart: true,
 } satisfies Prisma.CartItemInclude;
 
 const cartInclude = {
@@ -91,15 +92,24 @@ export class CartRepository {
   }
 
   addItem(cartId: string, variantId: string, qty: number): Promise<void> {
-    return this.prisma.cartItem
-      .create({ data: { cartId, variantId, qty } })
-      .then(() => undefined);
+    return this.prisma.cartItem.create({ data: { cartId, variantId, qty } }).then(() => undefined);
   }
 
   addBundleItem(cartId: string, bundleId: string, qty: number): Promise<void> {
+    return this.prisma.cartItem.create({ data: { cartId, bundleId, qty } }).then(() => undefined);
+  }
+
+  addSparePartItem(cartId: string, sparePartId: string, qty: number): Promise<void> {
     return this.prisma.cartItem
-      .create({ data: { cartId, bundleId, qty } })
+      .create({ data: { cartId, sparePartId, qty } })
       .then(() => undefined);
+  }
+
+  findItemBySparePart(cartId: string, sparePartId: string): Promise<CartItemWithVariant | null> {
+    return this.prisma.cartItem.findFirst({
+      where: { cartId, sparePartId },
+      include: cartItemInclude,
+    });
   }
 
   findItemByBundle(cartId: string, bundleId: string): Promise<CartItemWithVariant | null> {
@@ -110,7 +120,9 @@ export class CartRepository {
   }
 
   setItemQty(itemId: string, qty: number): Promise<void> {
-    return this.prisma.cartItem.update({ where: { id: itemId }, data: { qty } }).then(() => undefined);
+    return this.prisma.cartItem
+      .update({ where: { id: itemId }, data: { qty } })
+      .then(() => undefined);
   }
 
   removeItem(itemId: string): Promise<void> {
@@ -126,6 +138,30 @@ export class CartRepository {
     return this.prisma.cartItem
       .updateMany({ where: { cartId }, data: { reservedUntil } })
       .then(() => undefined);
+  }
+
+  /**
+   * Atomically take the checkout mutex on a cart. False if another checkout
+   * already holds a live lock (double-submit / concurrent tab).
+   */
+  async acquireCheckoutLock(cartId: string, until: Date): Promise<boolean> {
+    const now = new Date();
+    const { count } = await this.prisma.cart.updateMany({
+      where: {
+        id: cartId,
+        OR: [
+          { checkoutLockUntil: { isSet: false } },
+          { checkoutLockUntil: null },
+          { checkoutLockUntil: { lt: now } },
+        ],
+      },
+      data: { checkoutLockUntil: until },
+    });
+    return count === 1;
+  }
+
+  async releaseCheckoutLock(cartId: string): Promise<void> {
+    await this.prisma.cart.updateMany({ where: { id: cartId }, data: { checkoutLockUntil: null } });
   }
 
   releaseReservation(cartId: string): Promise<void> {
@@ -163,6 +199,28 @@ export class CartRepository {
       for (const comp of row.bundle?.items ?? []) {
         if (wanted.has(comp.variantId)) add(comp.variantId, comp.qty * row.qty);
       }
+    }
+    return out;
+  }
+
+  /** Live reserved quantities per spare part, excluding one cart. */
+  async sumLiveSparePartReservations(
+    sparePartIds: string[],
+    excludeCartId: string,
+    now: Date,
+  ): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (sparePartIds.length === 0) return out;
+    const rows = await this.prisma.cartItem.findMany({
+      where: {
+        cartId: { not: excludeCartId },
+        reservedUntil: { gt: now },
+        sparePartId: { in: sparePartIds },
+      },
+      select: { sparePartId: true, qty: true },
+    });
+    for (const row of rows) {
+      if (row.sparePartId) out.set(row.sparePartId, (out.get(row.sparePartId) ?? 0) + row.qty);
     }
     return out;
   }

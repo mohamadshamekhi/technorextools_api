@@ -1,13 +1,16 @@
 import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
+import type { ProductQuestionView } from '../../catalog/product-extras.view';
 import { Public } from '../../../common/decorators/public.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
 import {
   storefrontCreateCommentSchema,
+  storefrontCreateQuestionSchema,
   storefrontListCommentsQuerySchema,
   storefrontListProductsQuerySchema,
   type StorefrontCreateCommentInput,
+  type StorefrontCreateQuestionInput,
   type StorefrontListCommentsQuery,
   type StorefrontListProductsQuery,
 } from './storefront-catalog.schemas';
@@ -76,6 +79,22 @@ export class StorefrontCatalogController {
     @Body(new ZodValidationPipe(storefrontCreateCommentSchema)) body: StorefrontCreateCommentInput,
   ): Promise<{ status: 'pending' }> {
     return this.catalog.addComment(user.id, slug, body);
+  }
+
+  @Public()
+  @Get('products/:slug/questions')
+  productQuestions(@Param('slug') slug: string): Promise<ProductQuestionView[]> {
+    return this.catalog.productQuestions(slug);
+  }
+
+  @Post('products/:slug/questions')
+  addQuestion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('slug') slug: string,
+    @Body(new ZodValidationPipe(storefrontCreateQuestionSchema))
+    body: StorefrontCreateQuestionInput,
+  ): Promise<{ status: 'pending' }> {
+    return this.catalog.addQuestion(user.id, slug, body.question);
   }
 
   @Public()

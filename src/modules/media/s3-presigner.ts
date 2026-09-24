@@ -84,9 +84,7 @@ function presign(
     .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(query[k] as string)}`)
     .join('&');
 
-  const canonicalHeaders = opts.acl
-    ? `host:${host}\nx-amz-acl:${opts.acl}\n`
-    : `host:${host}\n`;
+  const canonicalHeaders = opts.acl ? `host:${host}\nx-amz-acl:${opts.acl}\n` : `host:${host}\n`;
   const canonicalRequest = [
     method,
     canonicalUri,

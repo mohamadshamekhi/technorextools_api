@@ -1,10 +1,11 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post } from '@nestjs/common';
 import { z } from 'zod';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
 import {
   StorefrontDiscountsService,
+  type ActiveDiscountView,
   type DiscountValidationView,
 } from './storefront-discounts.service';
 
@@ -15,6 +16,11 @@ type ValidateInput = z.infer<typeof validateSchema>;
 @Controller('storefront/discounts')
 export class StorefrontDiscountsController {
   constructor(private readonly discounts: StorefrontDiscountsService) {}
+
+  @Get('active')
+  active(@CurrentUser() user: AuthenticatedUser): Promise<ActiveDiscountView[]> {
+    return this.discounts.active(user.id);
+  }
 
   @Post('validate')
   validate(

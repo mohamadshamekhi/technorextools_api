@@ -10,6 +10,7 @@ const row = (over: Partial<Category> = {}): Category => ({
   parentId: null,
   title: 'ابزار بادی',
   slug: 'pneumatic-tools',
+  imageUrl: null,
   sortOrder: 0,
   isActive: true,
   createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -46,6 +47,7 @@ describe('CategoriesService', () => {
       service.create({
         title: 'ابزار بادی',
         slug: 'pneumatic-tools',
+        imageUrl: null,
         sortOrder: 0,
         isActive: true,
       }),
@@ -58,6 +60,7 @@ describe('CategoriesService', () => {
       service.create({
         title: 'پیچ‌گوشتی بادی',
         slug: 'air-screwdriver',
+        imageUrl: null,
         parentId: 'missingparent0000000000',
         sortOrder: 0,
         isActive: true,

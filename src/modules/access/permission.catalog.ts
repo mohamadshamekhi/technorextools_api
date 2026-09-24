@@ -19,6 +19,11 @@ export const PERMISSIONS = [
   { code: 'categories.manage', group: 'catalog', description: 'مدیریت دسته‌بندی و ویژگی‌ها' },
   { code: 'brands.manage', group: 'catalog', description: 'مدیریت برندها' },
   { code: 'inventory.manage', group: 'catalog', description: 'تغییر موجودی و قیمت واریانت' },
+  {
+    code: 'spare-parts.manage',
+    group: 'catalog',
+    description: 'مدیریت قطعات یدکی و سازگاری با محصولات',
+  },
 
   // orders
   { code: 'orders.view', group: 'orders', description: 'مشاهده سفارش‌ها و فاکتورها' },
@@ -39,6 +44,13 @@ export const PERMISSIONS = [
 
   // content & support
   { code: 'comments.moderate', group: 'content', description: 'تأیید/رد نظرات' },
+  {
+    code: 'product-questions.moderate',
+    group: 'content',
+    description: 'پاسخ و تأیید/رد پرسش‌های محصول',
+  },
+  { code: 'contact.view', group: 'content', description: 'مشاهده پیام‌های فرم تماس' },
+  { code: 'newsletter.view', group: 'content', description: 'مشاهده مشترکین خبرنامه' },
   { code: 'tickets.handle', group: 'content', description: 'پاسخ به تیکت‌های پشتیبانی' },
   { code: 'articles.manage', group: 'content', description: 'مدیریت وبلاگ' },
   { code: 'media.manage', group: 'content', description: 'آپلود تصویر و رسانه' },

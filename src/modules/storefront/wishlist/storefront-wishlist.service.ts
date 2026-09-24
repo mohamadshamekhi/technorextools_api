@@ -33,9 +33,7 @@ export class StorefrontWishlistService {
       title: r.product.title,
       slug: r.product.slug,
       basePrice: r.product.basePrice,
-      brand: r.product.brand
-        ? { title: r.product.brand.title, slug: r.product.brand.slug }
-        : null,
+      brand: r.product.brand ? { title: r.product.brand.title, slug: r.product.brand.slug } : null,
       mainImageUrl: mainImageUrlOf(mediaRows.filter((m) => m.ownerId === r.productId)),
       addedAt: r.createdAt,
     }));

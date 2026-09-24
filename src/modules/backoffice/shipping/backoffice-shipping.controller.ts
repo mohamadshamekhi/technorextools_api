@@ -46,10 +46,7 @@ export class BackofficeShippingController {
 
   @RequirePermissions('shipping.manage')
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateSchema)) body: UpdateInput,
-  ) {
+  update(@Param('id') id: string, @Body(new ZodValidationPipe(updateSchema)) body: UpdateInput) {
     return this.shipping.update(id, body);
   }
 

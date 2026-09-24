@@ -4,8 +4,17 @@ import { UserRepository } from '../../access/repositories/user.repository';
 import { LoyaltyService } from '../../loyalty/loyalty.service';
 import { ReferralRepository } from '../../referral/repositories/referral.repository';
 
+export interface LoyaltyTierProgressView {
+  lifetimePoints: number;
+  tier: { key: string; title: string; minPoints: number };
+  nextTier: { key: string; title: string; minPoints: number } | null;
+  pointsToNextTier: number | null;
+  progressPercent: number;
+}
+
 export interface LoyaltySummaryView {
   balance: number;
+  tier: LoyaltyTierProgressView;
   transactions: {
     items: Array<{ points: number; type: LoyaltyType; note: string | null; at: Date }>;
     total: number;
@@ -17,7 +26,12 @@ export interface LoyaltySummaryView {
 export interface ReferralsView {
   referralCode: string;
   grantedCount: number;
-  invitees: Array<{ name: string | null; maskedMobile: string; rewardStatus: ReferralReward; at: Date }>;
+  invitees: Array<{
+    name: string | null;
+    maskedMobile: string;
+    rewardStatus: ReferralReward;
+    at: Date;
+  }>;
 }
 
 @Injectable()
@@ -29,12 +43,14 @@ export class StorefrontLoyaltyService {
   ) {}
 
   async summary(userId: string, skip: number, take: number): Promise<LoyaltySummaryView> {
-    const [balance, [rows, total]] = await Promise.all([
+    const [balance, tier, [rows, total]] = await Promise.all([
       this.loyalty.balance(userId),
+      this.loyalty.tierProgress(userId),
       this.loyalty.history(userId, skip, take),
     ]);
     return {
       balance,
+      tier,
       transactions: {
         items: rows.map((t) => ({ points: t.points, type: t.type, note: t.note, at: t.createdAt })),
         total,

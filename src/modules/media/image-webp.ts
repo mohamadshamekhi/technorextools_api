@@ -1,10 +1,7 @@
 import sharp from 'sharp';
 
 /** contentTypes we re-encode to WebP on upload. */
-export const WEBP_CONVERTIBLE_TYPES: ReadonlySet<string> = new Set([
-  'image/jpeg',
-  'image/png',
-]);
+export const WEBP_CONVERTIBLE_TYPES: ReadonlySet<string> = new Set(['image/jpeg', 'image/png']);
 
 /** WebP encoder quality (0–100). 82 keeps files small with no visible loss for product photos. */
 const WEBP_QUALITY = 82;
@@ -29,7 +26,5 @@ export async function convertToWebp(buffer: Buffer): Promise<Buffer> {
       lastError = error;
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new Error('WebP conversion failed');
+  throw lastError instanceof Error ? lastError : new Error('WebP conversion failed');
 }

@@ -52,7 +52,7 @@ export class TicketRepository {
     userId: string,
     subject: string,
     body: string,
-  ): Promise<TicketWithMessages> {
+  ): Promise<{ ticket: TicketWithMessages; messageId: string }> {
     const created = await this.prisma.ticket.create({
       data: {
         userId,
@@ -64,7 +64,7 @@ export class TicketRepository {
       },
       include: withMessages,
     });
-    return created;
+    return { ticket: created, messageId: created.messages[0]!.id };
   }
 
   async addMessage(
@@ -73,24 +73,23 @@ export class TicketRepository {
       senderType: TicketSenderType;
       senderUserId: string;
       body: string;
-      attachmentUrl?: string | null;
     },
-  ): Promise<TicketWithMessages> {
+  ): Promise<{ ticket: TicketWithMessages; messageId: string }> {
     const nextStatus =
       msg.senderType === TicketSenderType.staff ? TicketStatus.answered : TicketStatus.open;
-    await this.prisma.$transaction([
+    const [message] = await this.prisma.$transaction([
       this.prisma.ticketMessage.create({
         data: {
           ticketId,
           senderType: msg.senderType,
           senderUserId: msg.senderUserId,
           body: msg.body,
-          attachmentUrl: msg.attachmentUrl ?? null,
         },
       }),
       this.prisma.ticket.update({ where: { id: ticketId }, data: { status: nextStatus } }),
     ]);
-    return this.findById(ticketId) as Promise<TicketWithMessages>;
+    const ticket = (await this.findById(ticketId)) as TicketWithMessages;
+    return { ticket, messageId: message.id };
   }
 
   setStatus(id: string, status: TicketStatus): Promise<TicketWithMessages> {

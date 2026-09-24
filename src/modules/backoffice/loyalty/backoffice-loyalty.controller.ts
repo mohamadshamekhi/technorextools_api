@@ -12,7 +12,10 @@ const listQuerySchema = z.object({
 type ListQuery = z.infer<typeof listQuerySchema>;
 
 const adjustSchema = z.object({
-  points: z.number().int().refine((n) => n !== 0, 'مقدار امتیاز نباید صفر باشد'),
+  points: z
+    .number()
+    .int()
+    .refine((n) => n !== 0, 'مقدار امتیاز نباید صفر باشد'),
   note: z.string().trim().min(2).max(200),
 });
 type AdjustInput = z.infer<typeof adjustSchema>;

@@ -3,6 +3,7 @@ import { StorefrontCartService } from './storefront-cart.service';
 import type { CartRepository } from '../../cart/repositories/cart.repository';
 import type { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
 import type { BundleRepository } from '../../bundles/repositories/bundle.repository';
+import type { SparePartRepository } from '../../spare-parts/repositories/spare-part.repository';
 import type { MediaRepository } from '../../media/repositories/media.repository';
 import type { AuthenticatedUser } from '../../auth/token.types';
 
@@ -65,6 +66,8 @@ function make(over: Record<string, jest.Mock> = {}) {
     findItem: over.findItem ?? jest.fn().mockResolvedValue(null),
     findItemByVariant: over.findItemByVariant ?? jest.fn().mockResolvedValue(null),
     addItem: over.addItem ?? jest.fn().mockResolvedValue(undefined),
+    findItemBySparePart: jest.fn().mockResolvedValue(null),
+    addSparePartItem: jest.fn().mockResolvedValue(undefined),
     setItemQty: over.setItemQty ?? jest.fn().mockResolvedValue(undefined),
     removeItem: jest.fn().mockResolvedValue(undefined),
     clearItems: jest.fn().mockResolvedValue(undefined),
@@ -77,10 +80,17 @@ function make(over: Record<string, jest.Mock> = {}) {
     findById: over.bundleFindById ?? jest.fn().mockResolvedValue(null),
     findItemByBundle: jest.fn().mockResolvedValue(null),
   } as unknown as BundleRepository;
+  const spareParts = {
+    findById: over.sparePartFindById ?? jest.fn().mockResolvedValue(null),
+  } as unknown as SparePartRepository;
   const media = {
     findByOwners: jest.fn().mockResolvedValue([]),
   } as unknown as MediaRepository;
-  return { service: new StorefrontCartService(carts, variants, bundles, media), carts, variants };
+  return {
+    service: new StorefrontCartService(carts, variants, bundles, spareParts, media),
+    carts,
+    variants,
+  };
 }
 
 describe('StorefrontCartService', () => {
@@ -111,6 +121,49 @@ describe('StorefrontCartService', () => {
     expect(carts.addItem).toHaveBeenCalledWith('c1', 'v1', 3);
   });
 
+  it('adds a spare part line, capped at its stock', async () => {
+    const part = {
+      id: 's1',
+      title: 'موتور',
+      slug: 'motor',
+      partNumber: 'P-1',
+      price: 500,
+      stockQty: 2,
+      isActive: true,
+      deletedAt: null,
+    };
+    const { service, carts } = make({
+      sparePartFindById: jest.fn().mockResolvedValue(part),
+      findActiveByUserId: jest.fn().mockResolvedValue(cartRow()),
+      findActiveById: jest
+        .fn()
+        .mockResolvedValue(
+          cartRow([
+            {
+              id: 'i9',
+              variantId: null,
+              bundleId: null,
+              sparePartId: 's1',
+              qty: 2,
+              sparePart: part,
+            },
+          ]),
+        ),
+    });
+    const view = await service.addSparePart({ user: USER }, 's1', 10);
+    expect(carts.addSparePartItem).toHaveBeenCalledWith('c1', 's1', 2);
+    expect(view.items[0]).toMatchObject({ kind: 'spare_part', sparePartId: 's1', lineTotal: 1000 });
+  });
+
+  it('rejects an inactive spare part', async () => {
+    const { service } = make({
+      sparePartFindById: jest.fn().mockResolvedValue({ id: 's1', isActive: false, stockQty: 5 }),
+    });
+    await expect(service.addSparePart({ user: USER }, 's1', 1)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
   it('applies a bulk price tier', async () => {
     const v = variant({ priceTiers: [{ minQty: 3, unitPrice: 800 }] });
     const { service } = make({
@@ -127,12 +180,16 @@ describe('StorefrontCartService', () => {
     const { service } = make({
       findByIdForCart: jest.fn().mockResolvedValue(variant({ stockQty: 0 })),
     });
-    await expect(service.addItem({ user: USER }, 'v1', 1)).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.addItem({ user: USER }, 'v1', 1)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
   });
 
   it('rejects an unknown variant', async () => {
     const { service } = make({ findByIdForCart: jest.fn().mockResolvedValue(null) });
-    await expect(service.addItem({ user: USER }, 'v1', 1)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.addItem({ user: USER }, 'v1', 1)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
   });
 
   it('merges a guest cart into a fresh user by re-owning it', async () => {

@@ -5,6 +5,7 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { RequirePermissions } from '../../../common/decorators/require-permissions.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
+import { mediaIdsSchema } from '../../media/media.schemas';
 import { BackofficeTicketsService } from './backoffice-tickets.service';
 
 const listQuerySchema = z.object({
@@ -16,7 +17,7 @@ type ListQuery = z.infer<typeof listQuerySchema>;
 
 const replySchema = z.object({
   body: z.string().trim().min(1).max(4000),
-  attachmentUrl: z.string().url().max(500).optional(),
+  mediaIds: mediaIdsSchema.default([]),
 });
 type ReplyInput = z.infer<typeof replySchema>;
 
@@ -47,7 +48,7 @@ export class BackofficeTicketsController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(replySchema)) body: ReplyInput,
   ) {
-    return this.tickets.reply(user.id, id, body.body, body.attachmentUrl);
+    return this.tickets.reply(user.id, id, body.body, body.mediaIds);
   }
 
   @RequirePermissions('tickets.handle')

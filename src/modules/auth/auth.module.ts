@@ -24,13 +24,7 @@ import { RefreshTokenRepository } from './repositories/refresh-token.repository'
     }),
   ],
   controllers: [AuthController],
-  providers: [
-    AuthService,
-    OtpService,
-    JwtStrategy,
-    RefreshTokenRepository,
-    OtpChallengeRepository,
-  ],
+  providers: [AuthService, OtpService, JwtStrategy, RefreshTokenRepository, OtpChallengeRepository],
   exports: [AuthService, RefreshTokenRepository, OtpChallengeRepository],
 })
 export class AuthModule {}

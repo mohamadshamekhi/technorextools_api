@@ -7,10 +7,12 @@ const slugSchema = z
   .max(120)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'اسلاگ باید فقط شامل حروف کوچک انگلیسی، عدد و خط تیره باشد');
 const objectIdSchema = z.string().length(24, 'شناسه باید ۲۴ کاراکتر باشد');
+const urlSchema = z.string().trim().url('آدرس تصویر معتبر نیست').max(2048);
 
 export const createCategorySchema = z.object({
   title: z.string().trim().min(1, 'عنوان الزامی است').max(120),
   slug: slugSchema,
+  imageUrl: urlSchema.nullable().default(null),
   parentId: objectIdSchema.optional(),
   sortOrder: z.coerce.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
@@ -21,6 +23,7 @@ export const updateCategorySchema = z
   .object({
     title: z.string().trim().min(1).max(120),
     slug: slugSchema,
+    imageUrl: urlSchema.nullable(),
     parentId: objectIdSchema.nullable(),
     sortOrder: z.coerce.number().int().min(0),
     isActive: z.boolean(),

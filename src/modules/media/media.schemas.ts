@@ -3,9 +3,7 @@ import { MediaOwnerType, MediaPurpose } from '@prisma/client';
 import { defaultedNullable, optionalNullable } from '../../common/validation/zod';
 
 const objectId = z.string().length(24, 'شناسه باید ۲۴ کاراکتر باشد');
-const boolFromForm = z
-  .enum(['true', 'false'])
-  .transform((v) => v === 'true');
+const boolFromForm = z.enum(['true', 'false']).transform((v) => v === 'true');
 
 /**
  * `multipart/form-data` — the `file` part is read by the interceptor, not this
@@ -27,6 +25,18 @@ export const uploadMediaSchema = z
     path: ['ownerId'],
   });
 export type UploadMediaInput = z.infer<typeof uploadMediaSchema>;
+
+/**
+ * Customer-side upload (`POST /storefront/media/upload`) — no owner fields: the
+ * row is attached to its ticket message / repair request when that is created.
+ */
+export const uploadAttachmentSchema = z.object({
+  alt: optionalNullable(z.string().trim().max(300)),
+});
+export type UploadAttachmentInput = z.infer<typeof uploadAttachmentSchema>;
+
+/** Attachment ids sent when creating a ticket message / repair request. */
+export const mediaIdsSchema = z.array(objectId).max(5, 'حداکثر ۵ پیوست مجاز است');
 
 export const listMediaQuerySchema = z.object({
   ownerType: z.nativeEnum(MediaOwnerType),

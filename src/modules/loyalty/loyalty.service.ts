@@ -3,6 +3,20 @@ import { LoyaltyType } from '@prisma/client';
 import { AppSettingsService } from '../content/app-settings.service';
 import { LoyaltyTransactionRepository } from './repositories/loyalty-transaction.repository';
 
+export interface LoyaltyTierView {
+  key: string;
+  title: string;
+  minPoints: number;
+}
+
+/** Hardcoded thresholds on lifetime earned points — see loyalty.service.ts. */
+export const LOYALTY_TIERS: LoyaltyTierView[] = [
+  { key: 'bronze', title: 'برنزی', minPoints: 0 },
+  { key: 'silver', title: 'نقره‌ای', minPoints: 500 },
+  { key: 'gold', title: 'طلایی', minPoints: 2000 },
+  { key: 'platinum', title: 'پلاتینی', minPoints: 5000 },
+];
+
 /**
  * Loyalty points ledger. Points are whole numbers; balance = Σ of all
  * transaction points (earn positive, redeem negative). 1 point = 1 Toman when
@@ -17,6 +31,34 @@ export class LoyaltyService {
 
   balance(userId: string): Promise<number> {
     return this.txns.balanceOf(userId);
+  }
+
+  /** Current tier + progress toward the next, based on lifetime earned points. */
+  async tierProgress(userId: string): Promise<{
+    lifetimePoints: number;
+    tier: LoyaltyTierView;
+    nextTier: LoyaltyTierView | null;
+    pointsToNextTier: number | null;
+    progressPercent: number;
+  }> {
+    const lifetimePoints = await this.txns.lifetimeEarned(userId);
+    const idx = [...LOYALTY_TIERS].reverse().findIndex((t) => lifetimePoints >= t.minPoints);
+    const tier = LOYALTY_TIERS[LOYALTY_TIERS.length - 1 - idx] ?? LOYALTY_TIERS[0]!;
+    const nextTier = LOYALTY_TIERS[LOYALTY_TIERS.indexOf(tier) + 1] ?? null;
+    return {
+      lifetimePoints,
+      tier,
+      nextTier,
+      pointsToNextTier: nextTier ? nextTier.minPoints - lifetimePoints : null,
+      progressPercent: nextTier
+        ? Math.min(
+            100,
+            Math.floor(
+              ((lifetimePoints - tier.minPoints) / (nextTier.minPoints - tier.minPoints)) * 100,
+            ),
+          )
+        : 100,
+    };
   }
 
   history(userId: string, skip: number, take: number) {

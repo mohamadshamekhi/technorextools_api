@@ -14,7 +14,10 @@ import { AddressRepository } from '../../address/repositories/address.repository
 import { resolveUnitPrice } from '../../cart/cart.pricing';
 import { CartRepository, type CartWithItems } from '../../cart/repositories/cart.repository';
 import { AppSettingsService } from '../../content/app-settings.service';
-import { DiscountEvaluatorService, type DiscountLine } from '../../discounts/discount-evaluator.service';
+import {
+  DiscountEvaluatorService,
+  type DiscountLine,
+} from '../../discounts/discount-evaluator.service';
 import { LoyaltyService } from '../../loyalty/loyalty.service';
 import { OrdersService } from '../../orders/orders.service';
 import { OrderRepository } from '../../orders/repositories/order.repository';
@@ -24,7 +27,8 @@ import { ShippingMethodRepository } from '../../shipping/repositories/shipping-m
 import type { PreviewCheckoutInput, StartCheckoutInput } from './storefront-checkout.schemas';
 
 interface ResolvedLine extends DiscountLine {
-  kind: 'variant' | 'bundle';
+  kind: 'variant' | 'bundle' | 'spare_part';
+  sparePartId: string | null;
   /** For a variant line: the variant. For a bundle line: null (see `components`). */
   variantId: string | null;
   bundleId: string | null;
@@ -36,7 +40,15 @@ interface ResolvedLine extends DiscountLine {
 }
 
 export interface CheckoutQuote {
-  lines: Array<{ variantId: string | null; bundleId: string | null; productTitle: string; qty: number; unitPrice: number; lineTotal: number }>;
+  lines: Array<{
+    variantId: string | null;
+    bundleId: string | null;
+    sparePartId: string | null;
+    productTitle: string;
+    qty: number;
+    unitPrice: number;
+    lineTotal: number;
+  }>;
   subtotal: number;
   discountCode: string | null;
   discountAmount: number;
@@ -47,6 +59,21 @@ export interface CheckoutQuote {
   total: number;
 }
 
+/** What `GET /storefront/checkout/in-flight` reports about a checkout already under way. */
+export interface CheckoutInFlightView {
+  /** True while another checkout request of this user holds the cart lock. */
+  locked: boolean;
+  /** The pending order the first submit produced, once it exists. */
+  order: {
+    orderNumber: string;
+    status: string;
+    total: number;
+    paymentMethod: string;
+    /** End of the reservation window — after this the order expires by itself. */
+    expiresAt: string;
+  } | null;
+}
+
 export interface CheckoutStartResult {
   orderNumber: string;
   total: number;
@@ -54,6 +81,9 @@ export interface CheckoutStartResult {
   paymentUrl: string | null;
   paid: boolean;
 }
+
+/** Upper bound on one checkout request; a crashed request's lock self-expires after this. */
+const CHECKOUT_LOCK_MS = 30_000;
 
 @Injectable()
 export class StorefrontCheckoutService {
@@ -75,21 +105,59 @@ export class StorefrontCheckoutService {
   async quote(userId: string, input: PreviewCheckoutInput): Promise<CheckoutQuote> {
     const cart = await this.loadCartOrThrow(userId);
     const lines = await this.resolveLines(userId, cart);
-    return this.computeQuote(userId, lines, input.shippingMethodId, input.discountCode, input.redeemPoints);
+    return this.computeQuote(
+      userId,
+      lines,
+      input.shippingMethodId,
+      input.discountCode,
+      input.redeemPoints,
+    );
   }
 
-  async start(userId: string, mobile: string, input: StartCheckoutInput): Promise<CheckoutStartResult> {
+  async start(
+    userId: string,
+    mobile: string,
+    input: StartCheckoutInput,
+  ): Promise<CheckoutStartResult> {
+    const cart = await this.loadCartOrThrow(userId);
+    // Mutex on the cart: a double-submit/second tab gets 409 instead of a 2nd order.
+    const locked = await this.carts.acquireCheckoutLock(
+      cart.id,
+      new Date(Date.now() + CHECKOUT_LOCK_MS),
+    );
+    if (!locked) {
+      // The first submit may not have written its order yet — report whichever is true
+      // so the client can poll `GET /checkout/in-flight` instead of guessing.
+      const inFlight = await this.inFlight(userId);
+      throw new ConflictException({
+        message: 'درخواست ثبت سفارش شما در حال پردازش است',
+        details: { code: 'checkout_in_progress', orderNumber: inFlight.order?.orderNumber ?? null },
+      });
+    }
+    try {
+      return await this.placeOrder(userId, mobile, cart, input);
+    } finally {
+      await this.carts.releaseCheckoutLock(cart.id);
+    }
+  }
+
+  private async placeOrder(
+    userId: string,
+    mobile: string,
+    cart: CartWithItems,
+    input: StartCheckoutInput,
+  ): Promise<CheckoutStartResult> {
     const windowMin = await this.settings.getNumber('stock_hold_minutes');
     const since = new Date(Date.now() - windowMin * 60_000);
+    // Checked under the lock, so it can't race another checkout of this user.
     const live = await this.orders.findLivePendingByUser(userId, since);
     if (live) {
       throw new ConflictException({
         message: 'شما یک سفارش در انتظار پرداخت دارید',
-        orderNumber: live.orderNumber,
+        details: { code: 'pending_order_exists', orderNumber: live.orderNumber },
       });
     }
 
-    const cart = await this.loadCartOrThrow(userId);
     const lines = await this.resolveLines(userId, cart);
     const address = await this.ownedAddress(userId, input.addressId);
     const paymentMethod = await this.paymentMethods.findByCode(input.paymentMethod);
@@ -124,6 +192,7 @@ export class StorefrontCheckoutService {
       items: lines.map((l) => ({
         variantId: l.variantId,
         bundleId: l.bundleId,
+        sparePartId: l.sparePartId,
         qty: l.qty,
         unitPrice: l.unitPrice,
         productTitle: l.productTitle,
@@ -131,27 +200,67 @@ export class StorefrontCheckoutService {
       })),
     });
 
-    if (quote.loyaltyRedeemPoints > 0) {
-      await this.loyalty.redeemForOrder(userId, order.id, quote.loyaltyRedeemPoints);
-    }
-    await this.carts.reserveItems(cart.id, new Date(Date.now() + windowMin * 60_000));
+    // Order row + points debit + reservation must land together. Mongo multi-doc
+    // writes here span several repositories, so instead of a DB transaction the
+    // order is compensated (points refunded, reservation released, `abandoned`)
+    // if any follow-up write fails.
+    try {
+      if (quote.loyaltyRedeemPoints > 0) {
+        await this.loyalty.redeemForOrder(userId, order.id, quote.loyaltyRedeemPoints);
+      }
+      await this.carts.reserveItems(cart.id, new Date(Date.now() + windowMin * 60_000));
 
-    if (quote.total <= 0) {
-      await this.ordersService.markPaid(order, 'ZERO');
-      return { orderNumber, total: 0, paymentUrl: null, paid: true };
+      if (quote.total <= 0) {
+        await this.ordersService.markPaid(order, 'ZERO');
+        return { orderNumber, total: 0, paymentUrl: null, paid: true };
+      }
+
+      if (paymentMethod.code === 'cash') {
+        await this.payments.createCash({ orderId: order.id, amount: quote.total });
+        return { orderNumber, total: quote.total, paymentUrl: null, paid: false };
+      }
+    } catch (err) {
+      await this.ordersService.abortCheckout(order);
+      throw err;
     }
 
-    if (paymentMethod.code === 'cash') {
-      await this.payments.createCash({ orderId: order.id, amount: quote.total });
-      return { orderNumber, total: quote.total, paymentUrl: null, paid: false };
-    }
-
+    // Gateway failure leaves the order pending on purpose — `POST /:orderNumber/pay` retries it.
     const paymentUrl = await this.openPayment(orderNumber, order.id, quote.total, mobile);
     return { orderNumber, total: quote.total, paymentUrl, paid: false };
   }
 
+  /**
+   * Is a checkout of this user still running, and did it already produce an order?
+   * Lets the client that got a 409 show the real state instead of a blind timer.
+   */
+  async inFlight(userId: string): Promise<CheckoutInFlightView> {
+    const windowMin = await this.settings.getNumber('stock_hold_minutes');
+    const cart = await this.carts.findActiveByUserId(userId);
+    const locked = cart?.checkoutLockUntil ? cart.checkoutLockUntil.getTime() > Date.now() : false;
+    const live = await this.orders.findLivePendingByUser(
+      userId,
+      new Date(Date.now() - windowMin * 60_000),
+    );
+    return {
+      locked,
+      order: live
+        ? {
+            orderNumber: live.orderNumber,
+            status: live.status,
+            total: live.total,
+            paymentMethod: live.paymentMethod,
+            expiresAt: new Date(live.placedAt.getTime() + windowMin * 60_000).toISOString(),
+          }
+        : null,
+    };
+  }
+
   /** (Re)open a payment session for an existing pending order — retry after failure. */
-  async payAgain(userId: string, orderNumber: string, mobile: string): Promise<{ paymentUrl: string }> {
+  async payAgain(
+    userId: string,
+    orderNumber: string,
+    mobile: string,
+  ): Promise<{ paymentUrl: string }> {
     const order = await this.ordersService.requireByNumber(orderNumber);
     if (order.userId !== userId) throw new ForbiddenException('این سفارش متعلق به شما نیست');
     if (order.status !== 'pending_payment') {
@@ -196,13 +305,13 @@ export class StorefrontCheckoutService {
 
   private async loadCartOrThrow(userId: string): Promise<CartWithItems> {
     const cart = await this.carts.findActiveByUserId(userId);
-    const hasItems = cart?.items.some((i) => i.variantId !== null || i.bundleId !== null);
+    const hasItems = cart?.items.some(isSellableLine);
     if (!cart || !hasItems) throw new BadRequestException('سبد خرید شما خالی است');
     return cart;
   }
 
   private async resolveLines(userId: string, cart: CartWithItems): Promise<ResolvedLine[]> {
-    const lines = cart.items.filter((i) => i.variantId !== null || i.bundleId !== null);
+    const lines = cart.items.filter(isSellableLine);
     // Every variant that matters: direct lines + bundle components.
     const variantIds = new Set<string>();
     for (const item of lines) {
@@ -211,8 +320,34 @@ export class StorefrontCheckoutService {
     }
     const now = new Date();
     const reserved = await this.carts.sumLiveReservations([...variantIds], cart.id, now);
+    const partIds = lines.map((i) => i.sparePartId).filter((id): id is string => !!id);
+    const reservedParts = await this.carts.sumLiveSparePartReservations(partIds, cart.id, now);
 
     return lines.map((item): ResolvedLine => {
+      if (item.sparePart) {
+        const part = item.sparePart;
+        if (!part.isActive || part.deletedAt) {
+          throw new BadRequestException('یکی از قطعات یدکی سبد دیگر در دسترس نیست');
+        }
+        if (item.qty > part.stockQty - (reservedParts.get(part.id) ?? 0)) {
+          throw new ConflictException(`موجودی کافی برای «${part.title}» نیست`);
+        }
+        return {
+          kind: 'spare_part',
+          variantId: null,
+          bundleId: null,
+          sparePartId: part.id,
+          productId: part.id,
+          categoryId: '__spare_part__',
+          qty: item.qty,
+          unitPrice: part.price,
+          productTitle: part.title,
+          sku: part.partNumber,
+          weightGrams: part.weightGrams,
+          components: [],
+        };
+      }
+
       if (item.bundle) {
         const bundle = item.bundle;
         if (!bundle.isActive || bundle.items.length === 0) {
@@ -232,6 +367,7 @@ export class StorefrontCheckoutService {
           kind: 'bundle',
           variantId: null,
           bundleId: bundle.id,
+          sparePartId: null,
           productId: '__bundle__',
           categoryId: '__bundle__',
           qty: item.qty,
@@ -241,7 +377,10 @@ export class StorefrontCheckoutService {
           weightGrams: bundle.items.some((bi) => bi.variant.weightGrams === null)
             ? null
             : bundle.items.reduce((g, bi) => g + (bi.variant.weightGrams ?? 0) * bi.qty, 0),
-          components: bundle.items.map((bi) => ({ variantId: bi.variantId, qtyPerPackage: bi.qty })),
+          components: bundle.items.map((bi) => ({
+            variantId: bi.variantId,
+            qtyPerPackage: bi.qty,
+          })),
         };
       }
 
@@ -263,6 +402,7 @@ export class StorefrontCheckoutService {
         kind: 'variant',
         variantId: variant.id,
         bundleId: null,
+        sparePartId: null,
         productId: variant.product.id,
         categoryId: variant.product.categoryId,
         qty: item.qty,
@@ -322,6 +462,7 @@ export class StorefrontCheckoutService {
       lines: lines.map((l) => ({
         variantId: l.variantId,
         bundleId: l.bundleId,
+        sparePartId: l.sparePartId,
         productTitle: l.productTitle,
         qty: l.qty,
         unitPrice: l.unitPrice,
@@ -351,4 +492,8 @@ function generateOrderNumber(): string {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = randomBytes(2).toString('hex').toUpperCase();
   return `AB-${ts}-${rand}`;
+}
+
+function isSellableLine(i: CartWithItems['items'][number]): boolean {
+  return i.variantId !== null || i.bundleId !== null || i.sparePartId !== null;
 }

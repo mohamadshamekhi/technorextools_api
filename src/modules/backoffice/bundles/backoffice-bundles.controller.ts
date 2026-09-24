@@ -63,10 +63,7 @@ export class BackofficeBundlesController {
 
   @RequirePermissions('bundles.manage')
   @Patch(':id')
-  update(
-    @Param('id') id: string,
-    @Body(new ZodValidationPipe(updateSchema)) body: UpdateInput,
-  ) {
+  update(@Param('id') id: string, @Body(new ZodValidationPipe(updateSchema)) body: UpdateInput) {
     return this.bundles.update(id, body);
   }
 

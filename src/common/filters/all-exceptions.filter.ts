@@ -14,13 +14,15 @@ interface ErrorBody {
   error: string;
   message: string | string[];
   fieldErrors?: unknown;
+  /** Extra machine-readable context a 4xx may carry (e.g. `{ code, orderNumber }`). */
+  details?: unknown;
   path: string;
   timestamp: string;
 }
 
 /**
  * The one place an error becomes an HTTP response. Produces a single envelope:
- *   { statusCode, error, message, fieldErrors?, path, timestamp }
+ *   { statusCode, error, message, fieldErrors?, details?, path, timestamp }
  *
  * Handled shapes:
  *  - HttpException (incl. the 400s from ZodValidationPipe, 401/403 from guards, 429 from throttler)
@@ -51,6 +53,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       error: HttpStatus[resolved.statusCode] ?? 'ERROR',
       message: resolved.message,
       ...(resolved.fieldErrors ? { fieldErrors: resolved.fieldErrors } : {}),
+      ...(resolved.details ? { details: resolved.details } : {}),
       path: request.originalUrl,
       timestamp: new Date().toISOString(),
     };
@@ -61,6 +64,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     statusCode: number;
     message: string | string[];
     fieldErrors?: unknown;
+    details?: unknown;
     log?: string;
   } {
     if (exception instanceof HttpException) {
@@ -73,6 +77,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         statusCode: exception.getStatus(),
         message: (record.message as string | string[]) ?? exception.message,
         fieldErrors: record.fieldErrors,
+        details: record.details,
       };
     }
 

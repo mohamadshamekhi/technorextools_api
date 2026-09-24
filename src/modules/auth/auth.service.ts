@@ -104,7 +104,10 @@ export class AuthService {
   }
 
   /** Self-service profile edit — name and email only (mobile/role are immutable here). */
-  async updateProfile(userId: string, patch: { fullName?: string; email?: string | null }): Promise<UserView> {
+  async updateProfile(
+    userId: string,
+    patch: { fullName?: string; email?: string | null },
+  ): Promise<UserView> {
     const user = await this.users.findByIdWithRole(userId);
     if (!user || !user.isActive) {
       throw new UnauthorizedException('حساب کاربری غیرفعال است');
@@ -142,7 +145,11 @@ export class AuthService {
         // Retry ONLY on a referralCode uniqueness collision — anything else
         // (and the final attempt) propagates so the request fails honestly.
         const target = (err as { meta?: { target?: unknown } })?.meta?.target;
-        const targetText = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
+        const targetText = Array.isArray(target)
+          ? target.join(',')
+          : typeof target === 'string'
+            ? target
+            : '';
         const isReferralClash =
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002' &&

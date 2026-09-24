@@ -3,9 +3,10 @@ import { LoyaltyService } from './loyalty.service';
 import type { LoyaltyTransactionRepository } from './repositories/loyalty-transaction.repository';
 import type { AppSettingsService } from '../content/app-settings.service';
 
-function build(opts: { balance?: number; rate?: number; pct?: number } = {}) {
+function build(opts: { balance?: number; rate?: number; pct?: number; lifetime?: number } = {}) {
   const txns = {
     balanceOf: jest.fn().mockResolvedValue(opts.balance ?? 0),
+    lifetimeEarned: jest.fn().mockResolvedValue(opts.lifetime ?? opts.balance ?? 0),
     create: jest.fn().mockResolvedValue({}),
     existsForOrder: jest.fn().mockResolvedValue(null),
     findForOrderWithNote: jest.fn().mockResolvedValue(null),
@@ -25,7 +26,9 @@ describe('LoyaltyService', () => {
   });
 
   it('caps redeemable points at the lesser of balance and percent-of-net', async () => {
-    expect(await build({ balance: 100_000, pct: 50 }).svc.maxRedeemableFor('u1', 40_000)).toBe(20_000);
+    expect(await build({ balance: 100_000, pct: 50 }).svc.maxRedeemableFor('u1', 40_000)).toBe(
+      20_000,
+    );
     expect(await build({ balance: 5_000, pct: 50 }).svc.maxRedeemableFor('u1', 40_000)).toBe(5_000);
   });
 
@@ -40,5 +43,32 @@ describe('LoyaltyService', () => {
     expect(txns.create).toHaveBeenCalledWith(
       expect.objectContaining({ points: -300, referenceOrderId: 'o1' }),
     );
+  });
+
+  describe('tierProgress', () => {
+    it('starts at bronze with progress toward silver', async () => {
+      const { svc } = build({ lifetime: 200 });
+      const r = await svc.tierProgress('u1');
+      expect(r.tier.key).toBe('bronze');
+      expect(r.nextTier?.key).toBe('silver');
+      expect(r.pointsToNextTier).toBe(300);
+      expect(r.progressPercent).toBe(40);
+    });
+
+    it('promotes exactly at a threshold', async () => {
+      const { svc } = build({ lifetime: 2000 });
+      const r = await svc.tierProgress('u1');
+      expect(r.tier.key).toBe('gold');
+      expect(r.nextTier?.key).toBe('platinum');
+    });
+
+    it('has no next tier once at the top', async () => {
+      const { svc } = build({ lifetime: 10_000 });
+      const r = await svc.tierProgress('u1');
+      expect(r.tier.key).toBe('platinum');
+      expect(r.nextTier).toBeNull();
+      expect(r.pointsToNextTier).toBeNull();
+      expect(r.progressPercent).toBe(100);
+    });
   });
 });

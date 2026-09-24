@@ -64,10 +64,16 @@ export class BackofficeOrdersService {
     return toAdminDetail(order);
   }
 
-  async setStatus(orderNumber: string, status: OrderStatus, adminUserId: string, note?: string) {
+  async setStatus(
+    orderNumber: string,
+    status: OrderStatus,
+    adminUserId: string,
+    note?: string,
+    shipment?: { carrier?: string | null; trackingNumber?: string | null },
+  ) {
     const order = await this.orders.findByNumber(orderNumber);
     if (!order) throw new NotFoundException('سفارش یافت نشد');
-    const updated = await this.lifecycle.adminSetStatus(order, status, adminUserId, note);
+    const updated = await this.lifecycle.adminSetStatus(order, status, adminUserId, note, shipment);
     return toAdminDetail(updated);
   }
 

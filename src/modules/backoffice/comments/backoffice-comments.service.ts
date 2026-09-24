@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { CommentStatus } from '@prisma/client';
-import { CommentRepository, type CommentAdminRow } from '../../catalog/repositories/comment.repository';
+import {
+  CommentRepository,
+  type CommentAdminRow,
+} from '../../catalog/repositories/comment.repository';
 
 function toView(c: CommentAdminRow) {
   return {

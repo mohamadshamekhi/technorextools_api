@@ -7,12 +7,16 @@ import type { ProductRepository } from '../../catalog/repositories/product.repos
 import type { CommentRepository } from '../../catalog/repositories/comment.repository';
 import type { BundleRepository } from '../../bundles/repositories/bundle.repository';
 import type { MediaRepository } from '../../media/repositories/media.repository';
+import type { ProductDocumentRepository } from '../../catalog/repositories/product-document.repository';
+import type { ProductQuestionRepository } from '../../catalog/repositories/product-question.repository';
+import type { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
 
 const cat = (id: string, parentId: string | null, slug = id): Category => ({
   id,
   parentId,
   title: `دسته ${id}`,
   slug,
+  imageUrl: null,
   sortOrder: 0,
   isActive: true,
   createdAt: new Date('2026-01-01T00:00:00Z'),
@@ -44,9 +48,29 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
   const media = {
     findByOwners: overrides.mediaFindByOwners ?? jest.fn().mockResolvedValue([]),
     findProductMedia: overrides.mediaFindProductMedia ?? jest.fn().mockResolvedValue([]),
+    findByIds: jest.fn().mockResolvedValue([]),
   } as unknown as MediaRepository;
+  const documents = {
+    findByProduct: jest.fn().mockResolvedValue([]),
+  } as unknown as ProductDocumentRepository;
+  const questions = {
+    findApprovedByProduct: jest.fn().mockResolvedValue([]),
+  } as unknown as ProductQuestionRepository;
+  const variants = {
+    findActiveByProductIds: jest.fn().mockResolvedValue([]),
+  } as unknown as ProductVariantRepository;
   return {
-    service: new StorefrontCatalogService(categories, brands, products, comments, bundles, media),
+    service: new StorefrontCatalogService(
+      categories,
+      brands,
+      products,
+      comments,
+      bundles,
+      media,
+      documents,
+      questions,
+      variants,
+    ),
     products,
     paginate,
   };
@@ -147,6 +171,10 @@ describe('StorefrontCatalogService', () => {
     const { service } = make({
       findBySlugForStorefront: jest.fn().mockResolvedValue({
         ...scalars,
+        parts: [
+          { number: 2, name: 'کلید', code: 'AW-P02', sellable: true, hotspot: { x: 10, y: 20 } },
+          { number: 1, name: 'بدنه', code: 'AW-P01', sellable: false, hotspot: null },
+        ],
         category: { id: 'c1', title: 'ابزار بادی', slug: 'pneumatic' },
         brand: {
           id: 'b1',
@@ -230,6 +258,10 @@ describe('StorefrontCatalogService', () => {
       }),
     });
     const detail = await service.productDetail('air-wrench');
+    expect(detail.parts).toEqual([
+      { number: 1, name: 'بدنه', code: 'AW-P01', sellable: false, hotspot: null },
+      { number: 2, name: 'کلید', code: 'AW-P02', sellable: true, hotspot: { x: 10, y: 20 } },
+    ]);
     expect(detail.variants[0]!.effectivePrice).toBe(1_200_000);
     expect(detail.variants[1]!.effectivePrice).toBe(1_000_000);
     expect(detail.related).toHaveLength(1);
@@ -252,20 +284,49 @@ describe('StorefrontCatalogService', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         category: { id: 'c1', title: 'c', slug: 'c' },
+        parts: [],
         brand: null,
         variants: [],
         attributeValues: [],
         relatedTo: [],
       }),
       mediaFindProductMedia: jest.fn().mockResolvedValue([
-        { id: 'm1', url: 'https://x/g.jpg', alt: null, isMain: true, sortOrder: 0, purpose: 'GALLERY', ownerType: 'PRODUCT', ownerId: 'p1' },
-        { id: 'm2', url: 'https://x/d.pdf', alt: null, isMain: false, sortOrder: 0, purpose: 'DATASHEET', ownerType: 'PRODUCT', ownerId: 'p1' },
-        { id: 'm3', url: 'https://x/m.glb', alt: null, isMain: false, sortOrder: 0, purpose: 'MODEL_3D', ownerType: 'PRODUCT', ownerId: 'p1' },
+        {
+          id: 'm1',
+          url: 'https://x/g.jpg',
+          alt: null,
+          isMain: true,
+          sortOrder: 0,
+          purpose: 'GALLERY',
+          ownerType: 'PRODUCT',
+          ownerId: 'p1',
+        },
+        {
+          id: 'm2',
+          url: 'https://x/d.pdf',
+          alt: null,
+          isMain: false,
+          sortOrder: 0,
+          purpose: 'DATASHEET',
+          ownerType: 'PRODUCT',
+          ownerId: 'p1',
+        },
+        {
+          id: 'm3',
+          url: 'https://x/m.glb',
+          alt: null,
+          isMain: false,
+          sortOrder: 0,
+          purpose: 'MODEL_3D',
+          ownerType: 'PRODUCT',
+          ownerId: 'p1',
+        },
       ]),
     });
     const detail = await service.productDetail('air-wrench');
     expect(detail.datasheetUrl).toBe('https://x/d.pdf');
     expect(detail.model3dUrl).toBe('https://x/m.glb');
+    expect(detail.parts).toEqual([]);
     expect(detail.images).toEqual([
       { id: 'm1', url: 'https://x/g.jpg', alt: null, isMain: true, sortOrder: 0, variantId: null },
     ]);

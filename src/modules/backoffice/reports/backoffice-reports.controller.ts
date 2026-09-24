@@ -25,7 +25,10 @@ type InventoryQuery = z.infer<typeof inventoryQuerySchema>;
 const logsQuerySchema = z.object({
   skip: z.coerce.number().int().min(0).default(0),
   take: z.coerce.number().int().min(1).max(200).default(50),
-  userId: z.string().regex(/^[a-f0-9]{24}$/i).optional(),
+  userId: z
+    .string()
+    .regex(/^[a-f0-9]{24}$/i)
+    .optional(),
 });
 type LogsQuery = z.infer<typeof logsQuerySchema>;
 

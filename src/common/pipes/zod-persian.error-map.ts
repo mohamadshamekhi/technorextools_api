@@ -70,7 +70,9 @@ export const persianZodErrorMap: ZodErrorMap = (issue, ctx) => {
       // `validation` is a string for known checks, but an object for
       // startsWith/endsWith/includes — those fall back to the generic text.
       const validation = typeof issue.validation === 'string' ? issue.validation : undefined;
-      return { message: (validation ? messages[validation] : undefined) ?? 'قالب مقدار نامعتبر است' };
+      return {
+        message: (validation ? messages[validation] : undefined) ?? 'قالب مقدار نامعتبر است',
+      };
     }
     case 'invalid_enum_value':
       return { message: `یکی از این مقادیر باید باشد: ${issue.options.join('، ')}` };
