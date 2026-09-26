@@ -1,0 +1,25 @@
+# dependencies
+/node_modules
+
+# build
+/dist
+/coverage
+*.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / OS
+.DS_Store
+.idea
+*.iml
+
+# Claude Code local overrides
+.claude/settings.local.json

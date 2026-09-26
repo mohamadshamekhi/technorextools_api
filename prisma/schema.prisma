@@ -1,0 +1,1140 @@
+// Abzar API — data model for the tool-store platform (see the project blueprint).
+// Prisma + MongoDB: no SQL migrations. Apply changes with `pnpm prisma:push`,
+// then regenerate the client with `pnpm prisma:generate`.
+//
+// Domains: identity & access · catalog · cart & order · customer interaction · content & SEO.
+// Every concept gets its own model so a new feature is "a new field or model", not a rewrite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Identity & access
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Dynamic RBAC: a role is just a bag of permission codes. New roles are created
+/// in the admin panel — no code change, no deploy. `isSystem` roles cannot be deleted.
+model Role {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  slug        String   @unique // e.g. "superadmin", "accountant", "customer"
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+/// A single capability, e.g. `products.edit`, `orders.view`. Guards check these.
+model Permission {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  code        String   @unique
+  group       String // "products", "orders", … — for grouping in the panel UI
+  description String
+  createdAt   DateTime @default(now())
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String @id @default(auto()) @map("_id") @db.ObjectId
+  roleId       String @db.ObjectId
+  permissionId String @db.ObjectId
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@map("role_permissions")
+}
+
+model User {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  roleId       String    @db.ObjectId
+  role         Role      @relation(fields: [roleId], references: [id])
+  fullName     String?
+  mobile       String    @unique // E.164, the login identity
+  // Not a DB `@unique`: on the Mongo connector that index is non-sparse, so a
+  // second user with no email collides. Uniqueness among non-null emails is
+  // enforced in the service layer (AuthService / backoffice UsersService).
+  email        String?
+  isActive     Boolean   @default(true)
+  referralCode String    @unique // owned by this user, shared to invite others
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  addresses            Address[]
+  refreshTokens        RefreshToken[]
+  carts                Cart[]
+  orders               Order[]
+  comments             Comment[]
+  productQuestions     ProductQuestion[]
+  tickets              Ticket[]
+  ticketMessages       TicketMessage[]
+  wishlist             WishlistItem[]
+  notifications        Notification[]
+  loyaltyTransactions  LoyaltyTransaction[]
+  referralsMade        Referral[]           @relation("referrer")
+  referralReceived     Referral?            @relation("referred")
+  repairRequests       RepairRequest[]
+  discountUsages       DiscountUsage[]
+  adminActions         AdminActionLog[]
+  articles             Article[]
+  orderStatusChanges   OrderStatusHistory[]
+
+  @@index([email])
+  @@index([roleId])
+  @@map("users")
+}
+
+/// One row per OTP challenge. Holds the hashed code; also the basis for
+/// per-mobile rate limiting (count rows in the last hour).
+model OtpChallenge {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  mobile       String
+  codeHash     String
+  purpose      OtpPurpose @default(login)
+  referralCode String? // carried from request → applied when a new user is created
+  expiresAt    DateTime
+  attempts     Int        @default(0)
+  maxAttempts  Int        @default(5)
+  resendCount  Int        @default(0)
+  lastSentAt   DateTime   @default(now())
+  consumedAt   DateTime?
+  createdAt    DateTime   @default(now())
+
+  @@index([mobile, createdAt])
+  @@map("otp_challenges")
+}
+
+enum OtpPurpose {
+  login
+}
+
+/// One row per issued refresh token (hash only). Rotation revokes the previous row.
+model RefreshToken {
+  id        String    @id @default(auto()) @map("_id") @db.ObjectId
+  tokenHash String    @unique
+  userId    String    @db.ObjectId
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Address {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String   @db.ObjectId
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  receiverName   String
+  receiverMobile String
+  province       String
+  city           String
+  fullAddress    String
+  postalCode     String
+  isDefault      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Catalog
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Self-referential, unlimited depth.
+model Category {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  parentId  String?  @db.ObjectId
+  parent    Category?  @relation("categoryTree", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children  Category[] @relation("categoryTree")
+  title     String
+  slug      String   @unique
+  imageUrl  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attributeGroups AttributeGroup[]
+  products        Product[]
+
+  @@index([parentId])
+  @@map("categories")
+}
+
+model AttributeGroup {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  title      String
+  categoryId String   @db.ObjectId
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  attributes Attribute[]
+
+  @@index([categoryId])
+  @@map("attribute_groups")
+}
+
+model Attribute {
+  id               String            @id @default(auto()) @map("_id") @db.ObjectId
+  attributeGroupId String            @db.ObjectId
+  attributeGroup   AttributeGroup    @relation(fields: [attributeGroupId], references: [id], onDelete: Cascade)
+  title            String
+  unit             String?
+  inputType        AttributeInputType @default(text)
+  options          String[] // for inputType = select
+  sortOrder        Int                @default(0)
+  createdAt        DateTime           @default(now())
+
+  values ProductAttributeValue[]
+
+  @@index([attributeGroupId])
+  @@map("attributes")
+}
+
+enum AttributeInputType {
+  text
+  number
+  boolean
+  select
+}
+
+model Brand {
+  id                     String   @id @default(auto()) @map("_id") @db.ObjectId
+  title                  String
+  slug                   String   @unique
+  isExclusiveDistributor Boolean  @default(false)
+  authenticityNote       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  products Product[]
+
+  @@map("brands")
+}
+
+model Product {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  categoryId    String   @db.ObjectId
+  category      Category @relation(fields: [categoryId], references: [id])
+  brandId       String?  @db.ObjectId
+  brand         Brand?   @relation(fields: [brandId], references: [id])
+  title         String
+  slug          String   @unique
+  shortDesc     String?
+  description   String? // rich text
+  basePrice     Int // Toman, integer
+  isAmazingDeal Boolean  @default(false)
+  isFeatured    Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  deletedAt     DateTime? // soft delete
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  // Exploded-view part list (embedded; numbers match the EXPLODED_VIEW media image).
+  // Missing on old documents → Prisma returns [].
+  parts         ProductPart[]
+  // Spec highlights shown as icon cards on the product page (embedded).
+  highlights    ProductHighlight[]
+  // Labelled points on the glTF/GLB model (embedded) — 3D, unlike `parts.hotspot`.
+  model3dHotspots ProductModel3dHotspot[]
+
+  attributeValues ProductAttributeValue[]
+  variants        ProductVariant[]
+  comments        Comment[]
+  wishlistedBy    WishlistItem[]
+  relatedFrom     RelatedProduct[]        @relation("relatedFrom")
+  relatedTo       RelatedProduct[]        @relation("relatedTo")
+  spareParts      SparePartCompatibility[]
+  documents       ProductDocument[]
+  questions       ProductQuestion[]
+
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([isAmazingDeal])
+  @@index([isFeatured])
+  @@map("products")
+}
+
+/// One numbered part on a product's exploded-view image.
+type ProductPart {
+  number   Int // part number printed on the exploded view, ≥ 1, unique per product
+  name     String
+  code     String // e.g. BSD102-P04
+  sellable Boolean @default(false) // storefront shows «سفارش قطعه» when true
+  hotspot  ProductPartHotspot? // position of the number on the exploded-view image
+}
+
+/// One icon card in the product's highlight strip.
+type ProductHighlight {
+  icon  String // frontend icon key, e.g. `motor`
+  value String // e.g. «۱۲ وات»
+  label String // e.g. «توان موتور»
+}
+
+/// A labelled point in the glTF/GLB model's own coordinate space.
+type ProductModel3dHotspot {
+  key         String // stable id used by the viewer
+  label       String
+  description String?
+  x           Float
+  y           Float
+  z           Float
+}
+
+/// Percent coordinates (0–100) from the image's top-left corner.
+type ProductPartHotspot {
+  x Float
+  y Float
+}
+
+/// A downloadable document of a product (catalogue, manual, datasheet, certificate).
+/// The file itself is a `Media` row; this carries the catalogue metadata around it.
+model ProductDocument {
+  id        String              @id @default(auto()) @map("_id") @db.ObjectId
+  productId String              @db.ObjectId
+  product   Product             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  mediaId   String              @db.ObjectId
+  type      ProductDocumentType
+  title     String
+  locale    String              @default("fa")
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  @@index([productId])
+  @@map("product_documents")
+}
+
+enum ProductDocumentType {
+  catalog
+  manual
+  datasheet
+  certificate
+}
+
+/// Customer question on a product page, answered by staff (moderated like comments).
+model ProductQuestion {
+  id           String                @id @default(auto()) @map("_id") @db.ObjectId
+  productId    String                @db.ObjectId
+  product      Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId       String                @db.ObjectId
+  user         User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question     String
+  answer       String?
+  answeredById String?               @db.ObjectId
+  answeredAt   DateTime?
+  status       ProductQuestionStatus @default(pending)
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([productId, status])
+  @@index([userId])
+  @@map("product_questions")
+}
+
+enum ProductQuestionStatus {
+  pending
+  approved
+  rejected
+}
+
+model ContactMessage {
+  id        String               @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  phone     String
+  subject   String?
+  message   String
+  status    ContactMessageStatus @default(new)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([status, createdAt])
+  @@map("contact_messages")
+}
+
+enum ContactMessageStatus {
+  new
+  handled
+}
+
+model NewsletterSubscriber {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  contact      String   @unique // email or Iranian mobile, normalised
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("newsletter_subscribers")
+}
+
+model ProductAttributeValue {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  productId   String    @db.ObjectId
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attributeId String    @db.ObjectId
+  attribute   Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  value       String
+
+  @@unique([productId, attributeId])
+  @@index([attributeId, value]) // faceted search
+  @@map("product_attribute_values")
+}
+
+model ProductVariant {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  productId     String   @db.ObjectId
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku           String   @unique
+  colorName     String?
+  stockQty      Int      @default(0)
+  priceOverride Int? // Toman
+  weightGrams   Int? // shipping: used by `by_weight` shipping methods; null → method falls back to flat
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+  bundleItems BundleItem[]
+  priceTiers PriceTier[]
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Media — every uploaded asset (images + documents) with a polymorphic owner.
+// Uploaded through POST /api/v1/backoffice/media/upload; the API stores the file
+// in object storage and persists this row. `ownerType` + `ownerId` point at the
+// owning entity (no Prisma relation — the id is a plain ObjectId); `purpose`
+// distinguishes a gallery image from a datasheet, a brand logo, etc.
+// ─────────────────────────────────────────────────────────────────────────────
+enum MediaKind {
+  IMAGE
+  DOCUMENT
+  MODEL
+  OTHER
+}
+
+enum MediaOwnerType {
+  PRODUCT
+  PRODUCT_VARIANT
+  SPARE_PART
+  BUNDLE
+  BRAND
+  ARTICLE
+  CATEGORY
+  TICKET_MESSAGE
+  REPAIR_REQUEST
+}
+
+enum MediaPurpose {
+  GALLERY
+  COVER
+  LOGO
+  DATASHEET
+  MODEL_3D
+  EXPLODED_VIEW
+  ATTACHMENT
+  OG_IMAGE
+}
+
+model Media {
+  id           String          @id @default(auto()) @map("_id") @db.ObjectId
+  key          String          @unique // object-storage key
+  url          String // public URL
+  contentType  String
+  size         Int // bytes
+  originalName String?
+  kind         MediaKind
+  ownerType    MediaOwnerType?
+  ownerId      String?         @db.ObjectId
+  purpose      MediaPurpose    @default(ATTACHMENT)
+  alt          String?
+  isMain       Boolean         @default(false)
+  sortOrder    Int             @default(0)
+  uploadedById String?         @db.ObjectId
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([ownerType, ownerId, purpose])
+  @@map("media")
+}
+
+model RelatedProduct {
+  id               String  @id @default(auto()) @map("_id") @db.ObjectId
+  productId        String  @db.ObjectId
+  relatedProductId String  @db.ObjectId
+  product          Product @relation("relatedFrom", fields: [productId], references: [id], onDelete: Cascade)
+  related          Product @relation("relatedTo", fields: [relatedProductId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, relatedProductId])
+  @@map("related_products")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cart & order
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Cart {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String?    @db.ObjectId
+  user         User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  sessionToken String     @unique
+  status       CartStatus @default(active)
+  /// Short-lived checkout mutex — set atomically by `POST /storefront/checkout` so a
+  /// double-submit can't place two orders from the same cart.
+  checkoutLockUntil DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  items             CartItem[]
+  abandonedCartLog  AbandonedCartLog?
+
+  @@index([userId])
+  @@map("carts")
+}
+
+enum CartStatus {
+  active
+  merged
+  converted
+  abandoned
+}
+
+model CartItem {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  cartId        String         @db.ObjectId
+  cart          Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variantId     String?        @db.ObjectId
+  variant       ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  bundleId      String?        @db.ObjectId
+  bundle        Bundle?        @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  sparePartId   String?        @db.ObjectId
+  sparePart     SparePart?     @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
+  qty           Int
+  reservedUntil DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([cartId])
+  @@index([reservedUntil])
+  @@map("cart_items")
+}
+
+model Discount {
+  id              String       @id @default(auto()) @map("_id") @db.ObjectId
+  code            String       @unique
+  kind            DiscountKind
+  amountType      DiscountAmountType
+  value           Int // percent (1-100) or fixed Toman, per amountType
+  maxUsageTotal   Int?
+  maxUsagePerUser Int?
+  minOrderAmount  Int?
+  usedCount       Int          @default(0)
+  startsAt        DateTime?
+  endsAt          DateTime?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  targets DiscountTarget[]
+  orders  Order[]
+  usages  DiscountUsage[]
+
+  @@map("discounts")
+}
+
+enum DiscountKind {
+  single_product
+  user_specific
+  multi_product
+}
+
+enum DiscountAmountType {
+  percent
+  fixed
+}
+
+/// Polymorphic target of a discount: a product, a category, or a user.
+/// Resolved in application code (`targetType` + `targetId`) — Prisma cannot type a
+/// single scalar against three models.
+model DiscountTarget {
+  id         String             @id @default(auto()) @map("_id") @db.ObjectId
+  discountId String             @db.ObjectId
+  discount   Discount           @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  targetType DiscountTargetType
+  targetId   String             @db.ObjectId
+
+  @@unique([discountId, targetType, targetId])
+  @@index([discountId])
+  @@index([targetType, targetId])
+  @@map("discount_targets")
+}
+
+enum DiscountTargetType {
+  product
+  category
+  user
+}
+
+model DiscountUsage {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  discountId String   @db.ObjectId
+  discount   Discount @relation(fields: [discountId], references: [id], onDelete: Cascade)
+  userId     String   @db.ObjectId
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId    String   @db.ObjectId
+  createdAt  DateTime @default(now())
+
+  @@index([discountId, userId])
+  @@map("discount_usages")
+}
+
+model ShippingMethod {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  title          String
+  costType       ShippingCostType @default(flat)
+  cost           Int // Toman (flat) or per-kg (by_weight)
+  freeOverAmount Int?
+  isActive       Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orders Order[]
+
+  @@map("shipping_methods")
+}
+
+enum ShippingCostType {
+  flat
+  by_weight
+}
+
+model Order {
+  id               String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderNumber      String   @unique
+  userId           String   @db.ObjectId
+  user             User     @relation(fields: [userId], references: [id])
+  addressId        String   @db.ObjectId
+  address          Address  @relation(fields: [addressId], references: [id])
+  discountId       String?  @db.ObjectId
+  discount         Discount? @relation(fields: [discountId], references: [id])
+  shippingMethodId String?  @db.ObjectId
+  shippingMethod   ShippingMethod? @relation(fields: [shippingMethodId], references: [id])
+  /** `code` on the admin-managed `PaymentMethod` (`payment-methods`) — no FK; that table is
+   *  metadata (title/description/isActive) keyed by this same enum, not referenced by id. */
+  paymentMethod    PaymentMethodKind @default(online)
+  subtotal         Int
+  discountAmount   Int      @default(0)
+  shippingCost     Int      @default(0)
+  total            Int
+  status           OrderStatus @default(pending_payment)
+  /// Shipment info, set by an admin when the order moves to `shipped`.
+  carrier          String?
+  trackingNumber   String?
+  placedAt         DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  payments      Payment[]
+  warranties    Warranty[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("orders")
+}
+
+/** Admin-editable metadata for each `PaymentMethodKind`. `code` mirrors
+ *  `Order.paymentMethod`'s enum exactly and is `@unique` — create/delete only toggle
+ *  *whether* a code currently has a row (at most one each), they can't add a code
+ *  checkout doesn't already handle. Two rows are seeded by default. `isActive: false`
+ *  and "no row for this code" are both enforced at checkout (`StorefrontCheckoutService`),
+ *  not just a panel decoration. */
+model PaymentMethod {
+  id          String            @id @default(auto()) @map("_id") @db.ObjectId
+  code        PaymentMethodKind @unique
+  title       String
+  description String?
+  isActive    Boolean           @default(true)
+  sortOrder   Int               @default(0)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@map("payment_methods")
+}
+
+enum PaymentMethodKind {
+  /** Settled via `PaymentProvider` (the single configured gateway) at checkout. */
+  online
+  /** Settled manually — admin confirms receipt in the backoffice. */
+  cash
+}
+
+enum OrderStatus {
+  pending_payment
+  payment_failed
+  abandoned
+  paid
+  processing
+  shipped
+  delivered
+  cancelled
+}
+
+model OrderItem {
+  id           String  @id @default(auto()) @map("_id") @db.ObjectId
+  orderId      String  @db.ObjectId
+  order        Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId    String? @db.ObjectId
+  variant      ProductVariant? @relation(fields: [variantId], references: [id])
+  bundleId     String? @db.ObjectId
+  bundle       Bundle? @relation(fields: [bundleId], references: [id])
+  sparePartId  String? @db.ObjectId
+  sparePart    SparePart? @relation(fields: [sparePartId], references: [id])
+  qty          Int
+  unitPrice    Int
+  productTitle String // snapshot
+  sku          String? // snapshot
+
+  warranties Warranty[]
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id              String      @id @default(auto()) @map("_id") @db.ObjectId
+  orderId         String      @db.ObjectId
+  order           Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status          OrderStatus
+  changedByUserId String?     @db.ObjectId
+  changedByUser   User?       @relation(fields: [changedByUserId], references: [id])
+  bySystem        Boolean     @default(false)
+  note            String?
+  createdAt       DateTime    @default(now())
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model Payment {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  orderId   String        @db.ObjectId
+  order     Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  gateway   String
+  refId     String?
+  amount    Int
+  status    PaymentStatus @default(pending)
+  paidAt    DateTime?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([orderId])
+  @@map("payments")
+}
+
+enum PaymentStatus {
+  pending
+  success
+  failed
+}
+
+model Bundle {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  slug        String   @unique
+  description String?
+  bundlePrice Int
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items      BundleItem[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  @@map("bundles")
+}
+
+model BundleItem {
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
+  bundleId  String         @db.ObjectId
+  bundle    Bundle         @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  variantId String         @db.ObjectId
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  qty       Int
+
+  @@unique([bundleId, variantId])
+  @@map("bundle_items")
+}
+
+/// Spare part — sold separately from products (never in the product listing) and
+/// declared compatible with any number of products. Priced/stocked directly (no
+/// variants); images live in `Media` (`ownerType: SPARE_PART`).
+model SparePart {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  title       String
+  slug        String    @unique
+  partNumber  String?   @unique // manufacturer / internal part code
+  shortDesc   String?
+  description String? // rich text
+  price       Int // Toman, integer
+  stockQty    Int       @default(0)
+  weightGrams Int? // shipping: used by `by_weight` methods
+  isActive    Boolean   @default(true)
+  deletedAt   DateTime? // soft delete
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  compatibleProducts SparePartCompatibility[]
+  cartItems          CartItem[]
+  orderItems         OrderItem[]
+
+  @@map("spare_parts")
+}
+
+/// Junction: a spare part fits a product (many-to-many). Managed by the
+/// `SparePart` aggregate's repository.
+model SparePartCompatibility {
+  id          String    @id @default(auto()) @map("_id") @db.ObjectId
+  sparePartId String    @db.ObjectId
+  sparePart   SparePart @relation(fields: [sparePartId], references: [id], onDelete: Cascade)
+  productId   String    @db.ObjectId
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([sparePartId, productId])
+  @@index([productId])
+  @@map("spare_part_compatibilities")
+}
+
+model PriceTier {
+  id        String         @id @default(auto()) @map("_id") @db.ObjectId
+  variantId String         @db.ObjectId
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  minQty    Int
+  unitPrice Int
+
+  @@unique([variantId, minQty])
+  @@map("price_tiers")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Customer interaction
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Comment {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  productId String        @db.ObjectId
+  product   Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId    String        @db.ObjectId
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rating    Int // 1-5
+  body      String
+  status    CommentStatus @default(pending)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([productId, status])
+  @@index([userId])
+  @@map("comments")
+}
+
+enum CommentStatus {
+  pending
+  approved
+  rejected
+}
+
+model Ticket {
+  id        String       @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String       @db.ObjectId
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subject   String
+  status    TicketStatus @default(open)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  messages TicketMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@map("tickets")
+}
+
+enum TicketStatus {
+  open
+  answered
+  closed
+}
+
+model TicketMessage {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  ticketId      String            @db.ObjectId
+  ticket        Ticket            @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  senderType    TicketSenderType
+  senderUserId  String            @db.ObjectId
+  senderUser    User              @relation(fields: [senderUserId], references: [id])
+  body          String
+  createdAt     DateTime          @default(now())
+
+  @@index([ticketId])
+  @@map("ticket_messages")
+}
+
+enum TicketSenderType {
+  customer
+  staff
+}
+
+model WishlistItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @db.ObjectId
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+  @@map("wishlists")
+}
+
+model Notification {
+  id        String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String           @db.ObjectId
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  body      String
+  /// Optional in-app deep link the client navigates to, e.g. `/dashboard/repairs/<id>`.
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  order_shipped
+  order_delivered
+  order_cancelled
+  repair_status
+  discount
+  system
+}
+
+model LoyaltyTransaction {
+  id               String              @id @default(auto()) @map("_id") @db.ObjectId
+  userId           String              @db.ObjectId
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  points           Int // positive = earn, negative = redeem
+  type             LoyaltyType
+  referenceOrderId String?             @db.ObjectId
+  note             String?
+  createdAt        DateTime            @default(now())
+
+  @@index([userId])
+  @@map("loyalty_transactions")
+}
+
+enum LoyaltyType {
+  earn
+  redeem
+}
+
+model Referral {
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  referrerUserId String         @db.ObjectId
+  referrer       User           @relation("referrer", fields: [referrerUserId], references: [id], onDelete: Cascade)
+  referredUserId String         @unique @db.ObjectId
+  referred       User           @relation("referred", fields: [referredUserId], references: [id], onDelete: Cascade)
+  rewardStatus   ReferralReward @default(pending)
+  createdAt      DateTime       @default(now())
+
+  @@index([referrerUserId])
+  @@map("referrals")
+}
+
+enum ReferralReward {
+  pending
+  granted
+}
+
+model AbandonedCartLog {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  cartId     String   @unique @db.ObjectId
+  cart       Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  notifiedAt DateTime?
+  channel    String   @default("sms")
+  createdAt  DateTime @default(now())
+
+  @@map("abandoned_cart_logs")
+}
+
+model Warranty {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  orderId      String   @db.ObjectId
+  order        Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItemId  String   @db.ObjectId
+  orderItem    OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  serialNumber String?
+  startsAt     DateTime
+  endsAt       DateTime
+  createdAt    DateTime @default(now())
+
+  repairRequests RepairRequest[]
+
+  @@index([orderId])
+  @@map("warranties")
+}
+
+model RepairRequest {
+  id               String              @id @default(auto()) @map("_id") @db.ObjectId
+  warrantyId       String?             @db.ObjectId
+  warranty         Warranty?           @relation(fields: [warrantyId], references: [id], onDelete: SetNull)
+  userId           String              @db.ObjectId
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issueDescription String
+  status           RepairStatus        @default(received)
+  /// Append-only status timeline (embedded) — the customer panel renders it instead
+  /// of guessing progress from the enum's ordering.
+  statusHistory    RepairStatusEvent[]
+  /// Technician's findings, shown to the customer in the panel.
+  technicianNote   String?
+  /// Quoted repair cost in integer Toman; null until the technician sets one.
+  estimatedCost    Int?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("repair_requests")
+}
+
+/// One transition in a repair request's lifecycle.
+type RepairStatusEvent {
+  status RepairStatus
+  at     DateTime
+  note   String? // public note for this step (admin's or the customer's)
+  /// Who moved it. Absent on rows written before this field existed — read as `admin`.
+  by     RepairEventActor?
+}
+
+/// Who caused a repair status change.
+enum RepairEventActor {
+  admin
+  customer
+  system
+}
+
+enum RepairStatus {
+  received
+  reviewing
+  awaiting_customer
+  awaiting_parts
+  in_progress
+  done
+  delivered
+  canceled
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Content & SEO
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Polymorphic SEO metadata for a product / category / article / etc.
+model SeoMeta {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  entityType      String
+  entityId        String   @db.ObjectId
+  metaTitle       String?
+  metaDescription String?
+  canonicalUrl    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@map("seo_meta")
+}
+
+/// Global key/value settings, e.g. `stock_hold_minutes` = "10".
+model SiteSetting {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@map("site_settings")
+}
+
+model Article {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  title        String
+  slug         String    @unique
+  excerpt      String?
+  body         String // rich text
+  authorUserId String?   @db.ObjectId
+  author       User?     @relation(fields: [authorUserId], references: [id])
+  publishedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("articles")
+}
+
+model Branch {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  address         String
+  phone           String
+  workingHours    String?
+  isWholesalePoint Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("branches")
+}
+
+/// Audit trail for sensitive admin actions (price/stock/discount changes, …).
+model AdminActionLog {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId     String   @db.ObjectId
+  user       User     @relation(fields: [userId], references: [id])
+  action     String // "product.price.update", …
+  entityType String?
+  entityId   String?
+  metadata   Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+  @@map("admin_action_logs")
+}

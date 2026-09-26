@@ -1,0 +1,5862 @@
+{
+	"info": {
+		"name": "Abzar API",
+		"_postman_id": "abzar-api-root",
+		"description": "HTTP surface of abzar/api (tool-store platform). Base: {{baseUrl}}/api/v1 (health is at {{baseUrl}}/health).\n\nFolders mirror the consumer split:\n- **Auth** — shared OTP session endpoints.\n- **Backoffice** — admin-panel surface (abzar/backoffice), paths under /backoffice/*, gated by permissions.\n- **Storefront** — public-site / user-dashboard surface (abzar/storefront), paths under /storefront/* (none yet).\n- **Health** — ops.\n\nEvery new endpoint gets a request here in the right folder, with an example body, the {{...}} variables, a test that captures reusables, and a description naming the Zod schema + response shape.\n\nUse the `Abzar API — Local` environment. Login flow: **Auth → Request OTP** (with OTP_DEV_ECHO=true the code comes back in `devCode` and is auto-saved), then **Auth → Verify OTP**.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{accessToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"var t = pm.environment.get('serviceToken') || pm.collectionVariables.get('serviceToken');",
+					"if (t) { pm.request.headers.upsert({ key: 'X-Service-Token', value: t }); }"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:4000",
+			"type": "string"
+		},
+		{
+			"key": "apiBase",
+			"value": "{{baseUrl}}/api/v1",
+			"type": "string"
+		},
+		{
+			"key": "serviceToken",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Auth",
+			"description": "OTP login (mobile + 5-digit code). Shared by storefront and backoffice.",
+			"item": [
+				{
+					"name": "Request OTP",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{apiBase}}/auth/otp/request",
+							"host": [
+								"{{apiBase}}"
+							],
+							"path": [
+								"auth",
+								"otp",
+								"request"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"referralCode\": null\n}"
+						},
+						"description": "Body: `otpRequestSchema` — mobile (09xxxxxxxxx / +989…), optional referralCode.\nResponse: `{ expiresIn, resendAfter, devCode? }`. `devCode` only when OTP_DEV_ECHO=true.\nخطاها: **429** سقف ساعتی (`OTP_MAX_PER_HOUR`) یا cooldown ارسال مجدد (`OTP_RESEND_SECONDS`) — پیام فارسی ثانیه‌های باقی‌مانده را دارد. **503** «ارسال پیامک ناموفق بود. لطفاً دوباره تلاش کنید.» وقتی ارائه‌دهنده‌ی پیامک خطا می‌دهد؛ در این حالت چالش حذف می‌شود، پس کاربر cooldown و سهمیه‌ی ساعتی نمی‌سوزاند و می‌تواند بلافاصله دوباره تلاش کند."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('ok', () => pm.response.to.have.status(200));",
+									"var b = pm.response.json();",
+									"if (b.devCode) { pm.environment.set('otpCode', b.devCode); console.log('OTP:', b.devCode); }"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Verify OTP",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{apiBase}}/auth/otp/verify",
+							"host": [
+								"{{apiBase}}"
+							],
+							"path": [
+								"auth",
+								"otp",
+								"verify"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"code\": \"{{otpCode}}\",\n  \"cartToken\": \"{{cartToken}}\"\n}"
+						},
+						"description": "Body: `otpVerifySchema`. Response: `{ accessToken, expiresIn, refreshToken, isNewUser, user }`.\nCreates the user (role=customer) on first login. `cartToken` اختیاری: سبد مهمان را در سبد کاربر ادغام می‌کند."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('ok', () => pm.response.to.have.status(200));",
+									"var b = pm.response.json();",
+									"if (b.accessToken) pm.environment.set('accessToken', b.accessToken);",
+									"if (b.refreshToken) pm.environment.set('refreshToken', b.refreshToken);",
+									"if (b.user && b.user.id) pm.environment.set('userId', b.user.id);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{apiBase}}/auth/refresh",
+							"host": [
+								"{{apiBase}}"
+							],
+							"path": [
+								"auth",
+								"refresh"
+							]
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+						},
+						"description": "Rotates the refresh token: the presented one is revoked, a fresh pair returned."
+					},
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('ok', () => pm.response.to.have.status(200));",
+									"var b = pm.response.json();",
+									"if (b.accessToken) pm.environment.set('accessToken', b.accessToken);",
+									"if (b.refreshToken) pm.environment.set('refreshToken', b.refreshToken);"
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "Get Current User",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{apiBase}}/auth/me",
+							"host": [
+								"{{apiBase}}"
+							],
+							"path": [
+								"auth",
+								"me"
+							]
+						},
+						"description": "Bearer. Response: `{ id, fullName, mobile, email, role, referralCode }`."
+					}
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{apiBase}}/auth/logout",
+							"host": [
+								"{{apiBase}}"
+							],
+							"path": [
+								"auth",
+								"logout"
+							]
+						},
+						"description": "Bearer, no body. Revokes every refresh token for the user. 204."
+					}
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"url": {
+							"raw": "{{apiBase}}/auth/me",
+							"host": [
+								"{{apiBase}}"
+							],
+							"path": [
+								"auth",
+								"me"
+							],
+							"query": []
+						},
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"fullName\": \"کاربر نمونه\",\n  \"email\": \"user@example.com\"\n}"
+						}
+					},
+					"description": "Authenticated. Body: `updateProfileSchema` (`fullName?`, `email?`). → `UserView`.",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+								]
+							}
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Backoffice",
+			"description": "Admin-panel surface (abzar/backoffice). Paths under /api/v1/backoffice/*. Each route is gated by a permission code; a superadmin bypasses all checks.",
+			"item": [
+				{
+					"name": "Access (RBAC)",
+					"item": [
+						{
+							"name": "List Permissions",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/access/permissions",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"access",
+										"permissions"
+									]
+								},
+								"description": "Perm: `roles.manage`. The permission catalog grouped for the panel picker."
+							}
+						},
+						{
+							"name": "List Roles",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/access/roles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"access",
+										"roles"
+									]
+								},
+								"description": "Perm: `roles.manage`. → `[{ id, title, slug, isSystem, userCount, permissions[] }]`"
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"var b = pm.response.json();",
+											"var c = Array.isArray(b) && b.find(function(r){return r.slug==='customer';});",
+											"if (c) pm.environment.set('customerRoleId', c.id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Role",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/access/roles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"access",
+										"roles"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"مدیر محتوا\",\n  \"slug\": \"content-manager\",\n  \"description\": \"مدیریت وبلاگ و نظرات\",\n  \"permissions\": [\"articles.manage\", \"comments.moderate\"]\n}"
+								},
+								"description": "Perm: `roles.manage`. Body: `createRoleSchema`."
+							},
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"var b = pm.response.json();",
+											"if (b && b.id) pm.environment.set('roleId', b.id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Role",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/access/roles/{{roleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"access",
+										"roles",
+										"{{roleId}}"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"permissions\": [\"articles.manage\"]\n}"
+								},
+								"description": "Perm: `roles.manage`. Body: `updateRoleSchema` (partial). Replaces the permission set."
+							}
+						},
+						{
+							"name": "Delete Role",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/access/roles/{{roleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"access",
+										"roles",
+										"{{roleId}}"
+									]
+								},
+								"description": "Perm: `roles.manage`. 204. Fails on a system role or a role with users."
+							}
+						}
+					]
+				},
+				{
+					"name": "Users",
+					"item": [
+						{
+							"name": "List Users",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/users?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"users"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										},
+										{
+											"key": "search",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "roleId",
+											"value": "",
+											"disabled": true
+										}
+									]
+								},
+								"description": "Perm: `users.view`. Query: `listUsersQuerySchema`. → `{ items, total, skip, take }`."
+							}
+						},
+						{
+							"name": "Get User By ID",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/users/{{userId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"users",
+										"{{userId}}"
+									]
+								},
+								"description": "Perm: `users.view`."
+							}
+						},
+						{
+							"name": "Update User",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/users/{{userId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"users",
+										"{{userId}}"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"fullName\": \"کاربر نمونه\",\n  \"roleId\": \"{{customerRoleId}}\",\n  \"isActive\": true\n}"
+								},
+								"description": "Perm: `users.manage`. Body: `updateUserSchema` (partial). `roleId` assigns a role."
+							}
+						}
+					]
+				},
+				{
+					"name": "Categories",
+					"description": "Category tree + dynamic attribute families (attribute groups & attributes). Paths under /api/v1/backoffice.",
+					"item": [
+						{
+							"name": "List Categories",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories?skip=0&take=20&search&isActive",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										},
+										{
+											"key": "search",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "isActive",
+											"value": "",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"description": "Perm: `categories.view`. Query: `listCategoriesQuerySchema`. → `{ items, total, skip, take }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.items?.[0]?.id) pm.environment.set('categoryId', b.items?.[0]?.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Category Tree",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories/tree",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories",
+										"tree"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.view`. → nested `{ id, title, slug, sortOrder, children[] }` (no pagination).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Category",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"ابزار بادی\",\n  \"slug\": \"pneumatic-tools\",\n  \"parentId\": \"{{categoryId}}\",\n  \"sortOrder\": 0,\n  \"isActive\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. Body: `createCategorySchema` (`parentId` اختیاری — برای دسته ریشه حذفش کنید). → `CategoryView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.id) pm.environment.set('categoryId', b.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Category",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"ابزار بادی و برقی\",\n  \"sortOrder\": 1\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories/{{categoryId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories",
+										"{{categoryId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. Body: `updateCategorySchema` (`parentId: null` = جدا کردن از والد). → `CategoryView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Category",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories/{{categoryId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories",
+										"{{categoryId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. فقط وقتی زیردسته/محصول نداشته باشد → `204`؛ در غیر این صورت `409`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Attribute Groups",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories/{{categoryId}}/attribute-groups",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories",
+										"{{categoryId}}",
+										"attribute-groups"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.view`. → `AttributeGroupView[]` با `attributes[]` داخل هر گروه.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b[0]?.id) pm.environment.set('attributeGroupId', b[0]?.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Attribute Group",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"مشخصات فنی\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/categories/{{categoryId}}/attribute-groups",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"categories",
+										"{{categoryId}}",
+										"attribute-groups"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. Body: `createAttributeGroupSchema`. → `AttributeGroupView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.id) pm.environment.set('attributeGroupId', b.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Attribute Group",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"مشخصات فنی کامل\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/attribute-groups/{{attributeGroupId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"attribute-groups",
+										"{{attributeGroupId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. Body: `updateAttributeGroupSchema`. → `AttributeGroupView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Attribute Group",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/attribute-groups/{{attributeGroupId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"attribute-groups",
+										"{{attributeGroupId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. حذف آبشاری اتریبیوت‌ها و مقادیر محصولات → `204`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Attribute",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"گشتاور\",\n  \"unit\": \"نیوتن‌متر\",\n  \"inputType\": \"number\",\n  \"options\": [],\n  \"sortOrder\": 0\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/attribute-groups/{{attributeGroupId}}/attributes",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"attribute-groups",
+										"{{attributeGroupId}}",
+										"attributes"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. Body: `createAttributeSchema` (`inputType: select` نیازمند `options` غیرخالی). → `AttributeView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.id) pm.environment.set('attributeId', b.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Attribute",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"گشتاور کاری\",\n  \"options\": []\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/attributes/{{attributeId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"attributes",
+										"{{attributeId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. Body: `updateAttributeSchema`. → `AttributeView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Attribute",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/attributes/{{attributeId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"attributes",
+										"{{attributeId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `categories.manage`. مقادیر محصول متصل هم آبشاری حذف می‌شوند → `204`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Brands",
+					"description": "Brand management incl. exclusive-distributor flag and authenticity note.",
+					"item": [
+						{
+							"name": "List Brands",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/brands",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"brands"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `brands.manage`. → `BrandView[]` با `productsCount` (بدون صفحه‌بندی).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b[0]?.id) pm.environment.set('brandId', b[0]?.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Brand",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"پوما ایر\",\n  \"slug\": \"puma-air\",\n  \"logoUrl\": \"https://cdn.example.com/puma.png\",\n  \"isExclusiveDistributor\": true,\n  \"authenticityNote\": \"نمایندگی انحصاری ابزار بادی پوما\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/brands",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"brands"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `brands.manage`. Body: `createBrandSchema`. → `BrandView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.id) pm.environment.set('brandId', b.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Import Brands (crawler)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"source\": \"https://example-tools.ir\",\n  \"dryRun\": false,\n  \"replaceLogo\": false,\n  \"brands\": [\n    {\n      \"title\": \"Bosch\",\n      \"slug\": \"bosch\",\n      \"isExclusiveDistributor\": false,\n      \"authenticityNote\": \"وارداتی اصل آلمان\",\n      \"logoSourceUrl\": \"https://example-tools.ir/img/brands/bosch.png\"\n    },\n    {\n      \"title\": \"Makita\",\n      \"slug\": \"makita\",\n      \"logoSourceUrl\": \"https://example-tools.ir/img/brands/makita.png\"\n    },\n    {\n      \"title\": \"رونیکس\",\n      \"slug\": \"ronix\"\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/brands/import",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"brands",
+										"import"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `brands.manage`. Body: `importBrandsSchema` (`brands[]` ≤ ۲۰۰، هر آیتم `importBrandItemSchema`). Upsert بر اساس `slug`؛ `slug` اختیاری است و در نبودش از `title` لاتین ساخته می‌شود (عنوان فارسی بدون `slug` → همان آیتم failed). `logoSourceUrl` آدرس تصویر در سایت مبدأ است — API خودش دانلود، به WebP تبدیل و به‌صورت `Media` (`ownerType=BRAND`, `purpose=LOGO`) ذخیره می‌کند (SSRF-guard: فقط http/https و IP عمومی). برندی که لوگو دارد دست نمی‌خورد مگر `replaceLogo: true`. `dryRun: true` فقط گزارش می‌دهد. → `{ dryRun, total, created, updated, unchanged, failed, items: [{ title, slug, status, brandId, logo, error }] }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('201 ok', () => pm.expect(pm.response.code).to.eql(201));",
+											"try { const b = pm.response.json(); const hit = (b.items||[]).find(i => i.brandId); if (hit) pm.environment.set('brandId', hit.brandId); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Brand",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"پوما ایر\",\n  \"isExclusiveDistributor\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/brands/{{brandId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"brands",
+										"{{brandId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `brands.manage`. Body: `updateBrandSchema` (`logoUrl: null` پاک می‌کند). → `BrandView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Brand",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/brands/{{brandId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"brands",
+										"{{brandId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `brands.manage`. اگر محصولی متصل باشد → `409`؛ وگرنه `204`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Products",
+					"description": "Product CRUD, images (URL-based), attribute values, related products, variants. Prices are integer Toman.",
+					"item": [
+						{
+							"name": "List Products",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products?skip=0&take=20&search&categoryId={{categoryId}}&brandId={{brandId}}&isActive&isAmazingDeal",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										},
+										{
+											"key": "search",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "categoryId",
+											"value": "{{categoryId}}"
+										},
+										{
+											"key": "brandId",
+											"value": "{{brandId}}"
+										},
+										{
+											"key": "isActive",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "isAmazingDeal",
+											"value": "",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"description": "Perm: `products.view`. Query: `listProductsQuerySchema`. → `{ items: ProductCardView[], total, skip, take }` (محصولات soft-delete شده نمی‌آیند).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.items?.[0]?.id) pm.environment.set('productId', b.items?.[0]?.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Get Product",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.view`. → `ProductDetail` کامل: تصاویر، واریانت‌ها، مقادیر اتریبیوت، برند/دسته، مرتبط‌ها.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Product",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"بکس بادی ۱/۲ اینچ پوما\",\n  \"slug\": \"puma-air-wrench-1-2\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"brandId\": \"{{brandId}}\",\n  \"shortDesc\": \"بکس بادی صنعتی با گشتاور ۶۵۰ نیوتن‌متر\",\n  \"description\": \"<p>مناسب کارگاه‌های صنعتی…</p>\",\n  \"basePrice\": 12500000,\n  \"isAmazingDeal\": false,\n  \"isActive\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. Body: `createProductSchema` (قیمت: تومان صحیح). → `ProductDetail`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.id) pm.environment.set('productId', b.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Product",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"basePrice\": 11900000,\n  \"isAmazingDeal\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. Body: `updateProductSchema` (`brandId: null` برند را جدا می‌کند). → `ProductDetail`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Product",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. حذف نرم (soft delete) → `204`؛ محصول از فروشگاه حذف و در بک‌آفیس لیست نمی‌شود.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Replace Attribute Values",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"values\": [\n    {\n      \"attributeId\": \"{{attributeId}}\",\n      \"value\": \"۶۵۰\"\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}/attribute-values",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}",
+										"attribute-values"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. Body: `replaceAttributeValuesSchema` — `attributeId` باید به خانواده ویژگی دسته محصول تعلق داشته باشد؛ هر ویژگی فقط یک بار. → آرایه `attributeValues`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Replace Related",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"relatedProductIds\": []\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}/related",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}",
+										"related"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. Body: `replaceRelatedSchema` — idهای محصول مرتبط (خود محصول مجاز نیست). → `ProductDetail`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Variant",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"sku\": \"PUMA-AW-12-RED\",\n  \"colorName\": \"قرمز\",\n  \"stockQty\": 10,\n  \"priceOverride\": null,\n  \"isActive\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}/variants",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}",
+										"variants"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. Body: `createVariantSchema` (SKU یکتا؛ `priceOverride` خالی = قیمت پایه). → `ProductVariantView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.id) pm.environment.set('variantId', b.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Variant",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"colorName\": \"قرمز متالیک\",\n  \"isActive\": true\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/products/{{productId}}/variants/{{variantId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"products",
+										"{{productId}}",
+										"variants",
+										"{{variantId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `products.manage`. Body: `updateProductVariantSchema` — فقط sku/colorName/isActive؛ موجودی و قیمت از Inventory. → `ProductVariantView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Inventory",
+					"description": "Variant stock / price overrides / price tiers — separate `inventory.manage` permission.",
+					"item": [
+						{
+							"name": "List Variants",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/inventory/variants?skip=0&take=20&productId={{productId}}&search&lowStock",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"inventory",
+										"variants"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										},
+										{
+											"key": "productId",
+											"value": "{{productId}}"
+										},
+										{
+											"key": "search",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "lowStock",
+											"value": "",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"description": "Perm: `inventory.manage`. Query: `listVariantsQuerySchema` (`lowStock=true` = موجودی ≤ ۵). → `{ items: InventoryVariantView[], total, skip, take }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.items?.[0]?.id) pm.environment.set('inventoryVariantId', b.items?.[0]?.id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Variant Stock/Price",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"stockQty\": 25,\n  \"priceOverride\": 11800000\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/inventory/variants/{{inventoryVariantId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"inventory",
+										"variants",
+										"{{inventoryVariantId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `inventory.manage`. Body: `updateInventoryVariantSchema` — فقط stockQty/priceOverride/isActive. → `InventoryVariantView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Replace Price Tiers",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"tiers\": [\n    {\n      \"minQty\": 5,\n      \"unitPrice\": 11000000\n    },\n    {\n      \"minQty\": 10,\n      \"unitPrice\": 10500000\n    }\n  ]\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/inventory/variants/{{inventoryVariantId}}/price-tiers",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"inventory",
+										"variants",
+										"{{inventoryVariantId}}",
+										"price-tiers"
+									],
+									"query": []
+								}
+							},
+							"description": "Perm: `inventory.manage`. Body: `replacePriceTiersSchema` — کل پله‌های قیمت جایگزین می‌شود؛ `minQty` تکراری مجاز نیست. → `InventoryVariantView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Orders",
+					"item": [
+						{
+							"name": "List Orders",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/orders?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"orders"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`orders.view`. Query: `skip,take,status?,q?` (q = order number).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Order Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/orders/{{orderNumber}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"orders",
+										"{{orderNumber}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`orders.view`. → admin order detail (payments, statusHistory).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Set Order Status",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/orders/{{orderNumber}}/status",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"orders",
+										"{{orderNumber}}",
+										"status"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"status\": \"processing\",\n  \"note\": \"شروع آماده‌سازی\"\n}"
+								}
+							},
+							"description": "`orders.manage`. Body `{ status, note? }`. Allowed transitions only; cancel from paid restocks + refunds points.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Confirm Cash Payment",
+							"request": {
+								"method": "PATCH",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/orders/{{orderNumber}}/confirm-cash-payment",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"orders",
+										"{{orderNumber}}",
+										"confirm-cash-payment"
+									],
+									"query": []
+								}
+							},
+							"description": "`orders.manage`. No body. Only for a `pending_payment` order placed with a `paymentMethod.kind: cash` — marks it `paid` (stock decrement, loyalty credit, cart conversion) same as a successful gateway callback. 400 if the order's method isn't `cash` or it isn't `pending_payment`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204,400]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Payments",
+					"item": [
+						{
+							"name": "List Payments",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payments?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payments"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`payments.view`. Query: `skip,take,status?`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Shipping Methods",
+					"item": [
+						{
+							"name": "List Shipping Methods",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/shipping-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"shipping-methods"
+									],
+									"query": []
+								}
+							},
+							"description": "`shipping.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Shipping Method",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/shipping-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"shipping-methods"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"پست پیشتاز\",\n  \"costType\": \"flat\",\n  \"cost\": 60000,\n  \"freeOverAmount\": 2000000,\n  \"isActive\": true,\n  \"sortOrder\": 1\n}"
+								}
+							},
+							"description": "`shipping.manage`. Body: title, costType(flat|by_weight), cost, freeOverAmount?, isActive, sortOrder.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('shippingMethodId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Shipping Method",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/shipping-methods/{{shippingMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"shipping-methods",
+										"{{shippingMethodId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"cost\": 75000\n}"
+								}
+							},
+							"description": "`shipping.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Shipping Method",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/shipping-methods/{{shippingMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"shipping-methods",
+										"{{shippingMethodId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`shipping.manage`. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Payment Methods",
+					"item": [
+						{
+							"name": "List Payment Methods",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods"
+									],
+									"query": []
+								}
+							},
+							"description": "`payment-methods.manage`. دو ردیف (`online`,`cash`) از seed می‌آیند؛ هر کدام هم قابل create/delete است اما `code` یکتاست (حداکثر یک ردیف به‌ازای هر کد).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"const rows = pm.response.json();",
+											"const online = rows.find(r => r.code === 'online');",
+											"const cash = rows.find(r => r.code === 'cash');",
+											"if (online) pm.environment.set('paymentMethodId', online.id);",
+											"if (cash) pm.environment.set('paymentMethodIdCash', cash.id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Payment Method",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"code\": \"cash\",\n  \"title\": \"پرداخت در محل\",\n  \"description\": \"پرداخت نقدی هنگام تحویل\",\n  \"isActive\": true,\n  \"sortOrder\": 2\n}"
+								}
+							},
+							"description": "`payment-methods.manage`. Body: code(online|cash) + title, description?, isActive?, sortOrder?. `code` یکتاست — 409 اگر رکوردی با همان code از قبل باشد؛ فقط بعد از Delete Payment Method همان code دوباره قابل ساخت است. چک‌اوت فقط `online`/`cash` را می‌شناسد — code دیگری اضافه نکنید.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('paymentMethodId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Payment Method Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods/{{paymentMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods",
+										"{{paymentMethodId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`payment-methods.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Payment Method",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods/{{paymentMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods",
+										"{{paymentMethodId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"پرداخت آنلاین (زرین‌پال)\",\n  \"description\": \"پرداخت امن با کارت‌های بانکی عضو شتاب\",\n  \"isActive\": true,\n  \"sortOrder\": 1\n}"
+								}
+							},
+							"description": "`payment-methods.manage`. Body: title?, description?, isActive?, sortOrder? — نه `code` (غیرقابل‌تغییر). `isActive:false` واقعاً در چک‌اوت هم اعمال می‌شود (نه فقط تزئینی در پنل).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Payment Method",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/payment-methods/{{paymentMethodId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"payment-methods",
+										"{{paymentMethodId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`payment-methods.manage`. 204. با حذف تنها ردیف یک code، آن روش عملاً برای چک‌اوت مشتری در دسترس نمی‌ماند (مثل isActive:false، نه فقط تزئینی).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Discounts",
+					"item": [
+						{
+							"name": "List Discounts",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/discounts?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"discounts"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`discounts.view`. Query: `skip,take,isActive?`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Discount Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/discounts/{{discountId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"discounts",
+										"{{discountId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`discounts.view`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Discount Usages",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/discounts/{{discountId}}/usages",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"discounts",
+										"{{discountId}}",
+										"usages"
+									],
+									"query": []
+								}
+							},
+							"description": "`discounts.view`. → `DiscountUsage[]`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Discount",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/discounts",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"discounts"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"code\": \"WELCOME10\",\n  \"kind\": \"multi_product\",\n  \"amountType\": \"percent\",\n  \"value\": 10,\n  \"maxUsagePerUser\": 1,\n  \"minOrderAmount\": 500000,\n  \"isActive\": true,\n  \"targets\": []\n}"
+								}
+							},
+							"description": "`discounts.manage`. Body: `createDiscountSchema` (code, kind, amountType, value, limits, window, targets[]).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('discountId', pm.response.json().id);",
+											"pm.environment.set('discountCode', pm.response.json().code);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Discount",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/discounts/{{discountId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"discounts",
+										"{{discountId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"isActive\": false\n}"
+								}
+							},
+							"description": "`discounts.manage`. Partial; `targets` replaces all.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Discount",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/discounts/{{discountId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"discounts",
+										"{{discountId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`discounts.manage`. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Comments",
+					"item": [
+						{
+							"name": "List Comments",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/comments?status=pending",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"comments"
+									],
+									"query": [
+										{
+											"key": "status",
+											"value": "pending"
+										}
+									]
+								}
+							},
+							"description": "`comments.moderate`. Query: `skip,take,status` (default pending).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Moderate Comment",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/comments/{{commentId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"comments",
+										"{{commentId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"status\": \"approved\"\n}"
+								}
+							},
+							"description": "`comments.moderate`. Body `{ status: approved|rejected }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Tickets",
+					"item": [
+						{
+							"name": "List Tickets",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/tickets?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"tickets"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`tickets.handle`. Query: `skip,take,status?`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Ticket Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/tickets/{{ticketId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"tickets",
+										"{{ticketId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`tickets.handle`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Reply Ticket",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/tickets/{{ticketId}}/messages",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"tickets",
+										"{{ticketId}}",
+										"messages"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"body\": \"سلام، گارانتی ۱۸ ماهه است.\"\n}"
+								}
+							},
+							"description": "`tickets.handle`. Body `{ body, attachmentUrl? }` — status → answered.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Set Ticket Status",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/tickets/{{ticketId}}/status",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"tickets",
+										"{{ticketId}}",
+										"status"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"status\": \"closed\"\n}"
+								}
+							},
+							"description": "`tickets.handle`. Body `{ status: open|answered|closed }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Warranties",
+					"item": [
+						{
+							"name": "List Order Warranties",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/warranties?orderId={{orderId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"warranties"
+									],
+									"query": [
+										{
+											"key": "orderId",
+											"value": "{{orderId}}"
+										}
+									]
+								}
+							},
+							"description": "`warranties.manage`. Query `orderId`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Issue Warranty",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/warranties",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"warranties"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"orderItemId\": \"{{orderItemId}}\",\n  \"serialNumber\": \"SN-0001\",\n  \"startsAt\": \"2026-01-01\",\n  \"endsAt\": \"2027-01-01\"\n}"
+								}
+							},
+							"description": "`warranties.manage`. Body `{ orderId, orderItemId, serialNumber?, startsAt, endsAt }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Repairs",
+					"item": [
+						{
+							"name": "List Repair Requests",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/repairs?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"repairs"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										},
+										{
+											"key": "status",
+											"value": "reviewing",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"description": "`repairs.manage`. Query: `skip,take,status?` (status \u2208 `received|reviewing|awaiting_customer|awaiting_parts|in_progress|done|delivered|canceled`). Response `{ items: RepairAdminView[], total, skip, take }`; `RepairAdminView = { id, issueDescription, status, statusLabel, statusHistory: [{ status, statusLabel, at, note, by }], technicianNote, estimatedCost, user: { name, mobile }, warranty: { serialNumber, orderId } | null, attachments: [{ id, url, contentType, originalName }], createdAt, updatedAt }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Repair (technician findings)",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/repairs/{{repairId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"repairs",
+										"{{repairId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"technicianNote\": \"برد اصلی سوخته و باید تعویض شود\",\n  \"estimatedCost\": 1850000\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"description": "`repairs.manage`. Body `updateRepairSchema` — `{ technicianNote?: string|null, estimatedCost?: number|null }` (حداقل یک فیلد؛ `estimatedCost` تومان صحیح). وضعیت و `statusHistory` را دست نمی‌زند و اعلان نمی‌سازد. → `RepairAdminView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Set Repair Status",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/repairs/{{repairId}}/status",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"repairs",
+										"{{repairId}}",
+										"status"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"status\": \"in_progress\",\n  \"note\": \"قطعه معیوب تعویض شد\"\n}"
+								}
+							},
+							"description": "`repairs.manage`. Body `{ status: received|reviewing|awaiting_customer|awaiting_parts|in_progress|done|delivered|canceled, note?: string|null }` (`setRepairStatusSchema`). هر تغییر وضعیت یک ردیف به `statusHistory` اضافه می‌کند (با همان `note`) و برای مشتری یک اعلان `type: repair_status` با `link: /dashboard/repairs/:id` می‌سازد. ارسال دوباره‌ی همان وضعیت بدون `note` no-op است (نه ردیف تاریخچه، نه اعلان). Returns the updated `RepairAdminView` (incl. `statusLabel`, `statusHistory`, `technicianNote`, `estimatedCost`).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Content",
+					"item": [
+						{
+							"name": "List Articles",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/articles?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"articles"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`articles.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Get Article",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/articles/{{articleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"articles",
+										"{{articleId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`articles.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Article",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/articles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"articles"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"راهنمای انتخاب دریل\",\n  \"slug\": \"drill-guide\",\n  \"excerpt\": \"چطور دریل مناسب بخریم\",\n  \"body\": \"<p>متن کامل مقاله</p>\",\n  \"publishedAt\": \"2026-09-01\"\n}"
+								}
+							},
+							"description": "`articles.manage`. Body: `createArticleSchema` (title, slug, body, coverImage?, excerpt?, publishedAt?).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('articleId', pm.response.json().id);",
+											"pm.environment.set('articleSlug', pm.response.json().slug);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Article",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/articles/{{articleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"articles",
+										"{{articleId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"excerpt\": \"نسخه ویرایش‌شده\"\n}"
+								}
+							},
+							"description": "`articles.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Article",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/articles/{{articleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"articles",
+										"{{articleId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`articles.manage`. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Branches",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/branches",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"branches"
+									],
+									"query": []
+								}
+							},
+							"description": "`branches.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Branch",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/branches",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"branches"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"شعبه مرکزی\",\n  \"address\": \"تهران، خیابان جمهوری\",\n  \"phone\": \"02133445566\",\n  \"workingHours\": \"۹ تا ۱۸\",\n  \"isWholesalePoint\": true\n}"
+								}
+							},
+							"description": "`branches.manage`. Body: `createBranchSchema`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('branchId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Branch",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/branches/{{branchId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"branches",
+										"{{branchId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"phone\": \"02133445599\"\n}"
+								}
+							},
+							"description": "`branches.manage`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Branch",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/branches/{{branchId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"branches",
+										"{{branchId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`branches.manage`. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Get SEO Meta",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/seo?entityType=product&entityId={{productId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"seo"
+									],
+									"query": [
+										{
+											"key": "entityType",
+											"value": "product"
+										},
+										{
+											"key": "entityId",
+											"value": "{{productId}}"
+										}
+									]
+								}
+							},
+							"description": "`articles.manage`. Query `entityType,entityId`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Upsert SEO Meta",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/content/seo",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"content",
+										"seo"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"entityType\": \"product\",\n  \"entityId\": \"{{productId}}\",\n  \"metaTitle\": \"عنوان سئو\",\n  \"metaDescription\": \"توضیح متا\",\n  \"ogImage\": null,\n  \"canonicalUrl\": null\n}"
+								}
+							},
+							"description": "`articles.manage`. Body: `upsertSeoSchema`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Settings",
+					"item": [
+						{
+							"name": "List Settings",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/settings",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"settings"
+									],
+									"query": []
+								}
+							},
+							"description": "`settings.manage`. → `SiteSetting[]`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Put Settings",
+							"request": {
+								"method": "PUT",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/settings",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"settings"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"entries\": [\n    {\n      \"key\": \"site_title\",\n      \"value\": \"فروشگاه ابزار تکنورکس\"\n    },\n    {\n      \"key\": \"public_support_phone\",\n      \"value\": \"02100000000\"\n    }\n  ]\n}"
+								}
+							},
+							"description": "`settings.manage`. Body `{ entries: [{key,value}] }`. Upsert.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Bundles",
+					"item": [
+						{
+							"name": "List Bundles",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/bundles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"bundles"
+									],
+									"query": []
+								}
+							},
+							"description": "`bundles.manage`. → لیست پکیج‌ها با `available` و `packagesInStock` (همان حکم و موجودی‌ای که storefront می‌بیند) و `items[].stockQty` / `items[].isActive`، تا پنل بفهمد پکیج چرا منتشر نشده. `warnings` در خواندن همیشه `[]` است.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Bundle Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/bundles/{{bundleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"bundles",
+										"{{bundleId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`bundles.manage`. → یک پکیج با `available` / `packagesInStock` / `items[].stockQty` / `items[].isActive`؛ ۴۰۴ اگر نبود.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Bundle",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/bundles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"bundles"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"پکیج دریل + مته\",\n  \"slug\": \"drill-bit-pack\",\n  \"bundlePrice\": 3500000,\n  \"isActive\": true,\n  \"items\": [\n    {\n      \"variantId\": \"{{variantId}}\",\n      \"qty\": 1\n    }\n  ]\n}"
+								}
+							},
+							"description": "`bundles.manage`. Body: title, slug, description?, bundlePrice, isActive, items[{variantId,qty}]. عضو غیرفعال یا محصول حذف‌شده → **400** با `details.code = BUNDLE_ITEM_INACTIVE` (+ `variantId`, `sku`, `productTitle`) و پیام فارسی شامل نام و SKU همان عضو. ناموجودی مانع ذخیره نیست: پاسخ `warnings: [{ code: BUNDLE_ITEM_OUT_OF_STOCK, variantId, sku, stockQty, requiredQty }]` می‌دهد. → `{ id, title, slug, description, bundlePrice, isActive, available, packagesInStock, items: [{ variantId, qty, sku, productTitle, stockQty, isActive }], warnings }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('bundleId', pm.response.json().id);",
+											"pm.environment.set('bundleSlug', pm.response.json().slug);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Bundle",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/bundles/{{bundleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"bundles",
+										"{{bundleId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"bundlePrice\": 3300000\n}"
+								}
+							},
+							"description": "`bundles.manage`. `items` replaces all. اگر `items` ارسال شود همان اعتبارسنجی create اجرا می‌شود (**400** `BUNDLE_ITEM_INACTIVE`، یا `warnings` با `BUNDLE_ITEM_OUT_OF_STOCK`)؛ اگر `items` نیاید اعتبارسنجی اعضا انجام نمی‌شود. → همان ویو با `available` / `packagesInStock` / `warnings`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Bundle",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/bundles/{{bundleId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"bundles",
+										"{{bundleId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`bundles.manage`. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Loyalty",
+					"item": [
+						{
+							"name": "User Loyalty Summary",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/loyalty/{{userId}}?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"loyalty",
+										"{{userId}}"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`loyalty.manage`. → `{ balance, transactions }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Adjust User Points",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/loyalty/{{userId}}/adjust",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"loyalty",
+										"{{userId}}",
+										"adjust"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"points\": 1000,\n  \"note\": \"جبران خطای سیستمی\"\n}"
+								}
+							},
+							"description": "`loyalty.manage`. Body `{ points (non-zero, +/-), note }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Reports",
+					"item": [
+						{
+							"name": "Sales Report",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/reports/sales?from=2026-08-01&to=2026-09-09",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"reports",
+										"sales"
+									],
+									"query": [
+										{
+											"key": "from",
+											"value": "2026-08-01"
+										},
+										{
+											"key": "to",
+											"value": "2026-09-09"
+										}
+									]
+								}
+							},
+							"description": "`reports.view`. Query `from?,to?` (پیش‌فرض ۳۰ روز اخیر).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Inventory Report",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/reports/inventory?threshold=5",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"reports",
+										"inventory"
+									],
+									"query": [
+										{
+											"key": "threshold",
+											"value": "5"
+										}
+									]
+								}
+							},
+							"description": "`reports.view`. Query `threshold,skip,take` — واریانت‌های کم‌موجودی.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Admin Action Logs",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/reports/admin-logs?skip=0&take=50",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"reports",
+										"admin-logs"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "50"
+										}
+									]
+								}
+							},
+							"description": "`reports.view`. Query `skip,take,userId?`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Media",
+					"item": [
+						{
+							"name": "Upload File",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media/upload",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"media",
+										"upload"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{ "key": "file", "type": "file", "src": [] },
+										{ "key": "ownerType", "value": "PRODUCT", "type": "text" },
+										{ "key": "ownerId", "value": "{{productId}}", "type": "text" },
+										{ "key": "purpose", "value": "GALLERY", "type": "text" },
+										{ "key": "alt", "value": "بکس بادی پوما", "type": "text" },
+										{ "key": "isMain", "value": "true", "type": "text" },
+										{ "key": "sortOrder", "value": "0", "type": "text" },
+										{ "key": "folder", "value": "products", "type": "text" }
+									]
+								}
+							},
+							"description": "`media.manage`. `multipart/form-data` (schema `uploadMediaSchema`): `file` (raw file, ≤ 50 MB) + optional `ownerType` (PRODUCT | PRODUCT_VARIANT | SPARE_PART | BUNDLE | BRAND | ARTICLE | CATEGORY | TICKET_MESSAGE | REPAIR_REQUEST), `ownerId` (24-hex, must come with `ownerType`), `purpose` (GALLERY | COVER | LOGO | DATASHEET | MODEL_3D | ATTACHMENT | OG_IMAGE, default ATTACHMENT), `alt`, `isMain`, `sortOrder`, `folder`. Stores the file server-side, persists a `Media` row, and returns `MediaView` `{ id, url, key, contentType, size, originalName, kind, ownerType, ownerId, purpose, alt, isMain, sortOrder, createdAt }`. `image/jpeg` and `image/png` are re-encoded to WebP before storage (`contentType` `image/webp`, `.webp` key, `size` = encoded bytes); other types are stored unchanged. `originalName` نام واقعی فایل با کدگذاری UTF-8 است (نام‌های فارسی سالم برمی‌گردند؛ mojibake رفع شد). 400 no file / over 50 MB / owner missing / corrupt image; 503 S3 not configured or upstream PUT fails.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+											"try { pm.environment.set('mediaId', pm.response.json().id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Media by Owner",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media?ownerType=PRODUCT&ownerId={{productId}}",
+									"host": ["{{apiBase}}"],
+									"path": ["backoffice", "media"],
+									"query": [
+										{ "key": "ownerType", "value": "PRODUCT" },
+										{ "key": "ownerId", "value": "{{productId}}" }
+									]
+								}
+							},
+							"description": "`media.manage`. Query `ownerType` + `ownerId` (schema `listMediaQuerySchema`) → `MediaView[]` ordered by `sortOrder`."
+						},
+						{
+							"name": "Update Media",
+							"request": {
+								"method": "PATCH",
+								"header": [{ "key": "Content-Type", "value": "application/json" }],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"alt\": \"نمای جانبی\",\n  \"isMain\": true,\n  \"sortOrder\": 1,\n  \"purpose\": \"GALLERY\"\n}",
+									"options": { "raw": { "language": "json" } }
+								},
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media/{{mediaId}}",
+									"host": ["{{apiBase}}"],
+									"path": ["backoffice", "media", "{{mediaId}}"]
+								}
+							},
+							"description": "`media.manage`. Body `updateMediaSchema` (`purpose?`, `alt?`, `isMain?`, `sortOrder?` — at least one) → updated `MediaView`. Setting `isMain` clears it on the owner's other rows of the same purpose."
+						},
+						{
+							"name": "Delete Media",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/media/{{mediaId}}",
+									"host": ["{{apiBase}}"],
+									"path": ["backoffice", "media", "{{mediaId}}"]
+								}
+							},
+							"description": "`media.manage`. Removes the row and best-effort deletes the object from storage. 204."
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Storefront",
+			"description": "Public-site / user-dashboard surface (abzar/storefront). Paths under /api/v1/storefront/*.\n\nCatalog reads are public; cart, orders, dashboard, etc. land here in later stages.",
+			"item": [
+				{
+					"name": "Catalog",
+					"description": "Public catalog reads — active categories tree, brands, product list with faceted filter, product detail. No auth.",
+					"item": [
+						{
+							"name": "Category Tree",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/categories",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"categories"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → درخت دسته‌بندی‌های فعال `StorefrontCategoryNode[]`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Brands",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/brands",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"brands"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontBrandView[]` شامل `isExclusiveDistributor`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Products",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/products?skip=0&take=20&search&category=pneumatic-tools&brand&minPrice&maxPrice&isAmazingDeal=true&sort=newest&attrs",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"products"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										},
+										{
+											"key": "search",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "category",
+											"value": "pneumatic-tools"
+										},
+										{
+											"key": "brand",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "minPrice",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "maxPrice",
+											"value": "",
+											"disabled": true
+										},
+										{
+											"key": "isAmazingDeal",
+											"value": "true"
+										},
+										{
+											"key": "sort",
+											"value": "newest"
+										},
+										{
+											"key": "attrs",
+											"value": "",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"description": "Public (`@Public`). Query: `storefrontListProductsQuerySchema` — `category`/`brand` با اسلاگ؛ فیلتر دسته شامل نسل‌های پایین‌تر؛ `attrs=<attributeId>:<value>,…` فیلتر وجهی؛ `sort: newest|price-asc|price-desc`. → `{ items: StorefrontProductCardView[], total, skip, take }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('200/204 ok', () => pm.expect([200,201,204]).to.include(pm.response.code));",
+											"try { const b = pm.response.json(); if (b.items?.[0]?.slug) pm.environment.set('productSlug', b.items?.[0]?.slug); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Product Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/products/{{productSlug}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"products",
+										"{{productSlug}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontProductDetailView`: واریانت‌های فعال با `effectivePrice`، تصاویر، مقادیر اتریبیوت، برند با نشان اصالت (`authenticityNote`/`isExclusiveDistributor`)، مرتبط‌های فعال، `datasheetUrl`/`model3dUrl` (از `media`).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Product Comments",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/products/{{productSlug}}/comments?skip=0&take=10",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"products",
+										"{{productSlug}}",
+										"comments"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "10"
+										}
+									]
+								}
+							},
+							"description": "Public (`@Public`). Query: `storefrontListCommentsQuerySchema` (`skip`,`take`). → `{ items: StorefrontCommentView[], total, skip, take, averageRating }` — فقط کامنت‌های `approved`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Bundles",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/bundles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"bundles"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontBundleView[]` — پکیج‌های فعال با اقلام (واریانت + محصول + قیمت مؤثر). `StorefrontBundleView` = `{ id, title, slug, description, bundlePrice, compareAtTotal, savingAmount, imageUrl, packagesInStock, available, items: [{ qty, variant: { id, sku, colorName, stockQty, effectivePrice, imageUrl, isActive, product: { id, title, slug, isActive } } }] }`. `imageUrl` پکیج: تصویر اختصاصی (`Media` با `ownerType=BUNDLE`, `purpose=GALLERY`) و اگر نبود تصویر اولین عضو؛ `variant.imageUrl` اول gallery خود variant و اگر نبود gallery محصول. `compareAtTotal` = مجموع `effectivePrice × qty` اعضا، `savingAmount` = `compareAtTotal - bundlePrice` (هرگز منفی نمی‌شود). `packagesInStock` = تعداد بسته‌ی کامل قابل تأمین (min روی اعضا) و `available` = حکم نهایی سرور برای قابل‌خرید بودن (پکیج فعال + همه‌ی اعضا فعال و محصولشان حذف‌نشده + حداقل یک بسته موجود) — کلاینت لازم نیست خودش محاسبه کند.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Bundle Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/bundles/{{bundleSlug}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"bundles",
+										"{{bundleSlug}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontBundleView` — پکیج فعال بر اساس slug، ۴۰۴ اگر نبود/غیرفعال. همان شکل لیست (`imageUrl`, `compareAtTotal`, `savingAmount`).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Post Product Comment",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/catalog/products/{{productSlug}}/comments",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"catalog",
+										"products",
+										"{{productSlug}}",
+										"comments"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"rating\": 5,\n  \"body\": \"کیفیت عالی بود\"\n}"
+								}
+							},
+							"description": "Authenticated. Body: `storefrontCreateCommentSchema` (`rating` 1-5, `body`). → `{ status: 'pending' }`. یک نظر per user per product.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Cart",
+					"description": "سبد خرید مشتری/مهمان. مهمان توکن را در هدر `X-Cart-Token` می‌فرستد و از پاسخ ذخیره می‌کند؛ کاربر لاگین‌کرده با Bearer (سبد به کاربر گره می‌خورد). هنگام ورود با OTP، سبد مهمان در سبد کاربر ادغام می‌شود. رزرو موجودی در این مرحله انجام نمی‌شود (مرحله‌ی checkout).",
+					"item": [
+						{
+							"name": "Get Cart",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "X-Cart-Token",
+										"value": "{{cartToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart"
+									]
+								}
+							},
+							"description": "`@OptionalAuth`. → `CartView { token, items[], itemCount, subtotal, fulfillable }`. هر آیتم: `unitPrice` (با پله‌ی قیمت عمده)، `lineTotal`، `stockQty`، `available`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok',()=>pm.expect(pm.response.code).to.be.oneOf([200,204]));",
+											"try{const b=pm.response.json(); if(b.token) pm.environment.set('cartToken',b.token); if(b.items&&b.items[0]) pm.environment.set('cartItemId',b.items[0].id);}catch(e){}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Add Item",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "X-Cart-Token",
+										"value": "{{cartToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart/items",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart",
+										"items"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"variantId\": \"{{cartVariantId}}\",\n  \"qty\": 1\n}"
+								}
+							},
+							"description": "Body: `addCartItemSchema { variantId, qty=1 }`. تعداد تا موجودی و سقف ۹۹۹ محدود می‌شود؛ آیتم موجود جمع می‌شود. → `CartView`. برای مهمان، `token` پاسخ را ذخیره کنید.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok',()=>pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+											"try{const b=pm.response.json(); if(b.token) pm.environment.set('cartToken',b.token); if(b.items&&b.items[0]) pm.environment.set('cartItemId',b.items[0].id);}catch(e){}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Item Qty",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "X-Cart-Token",
+										"value": "{{cartToken}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart/items/{{cartItemId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart",
+										"items",
+										"{{cartItemId}}"
+									]
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"qty\": 2\n}"
+								}
+							},
+							"description": "Body: `updateCartItemSchema { qty }`. → `CartView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok',()=>pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Remove Item",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "X-Cart-Token",
+										"value": "{{cartToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart/items/{{cartItemId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart",
+										"items",
+										"{{cartItemId}}"
+									]
+								}
+							},
+							"description": "حذف یک آیتم. → `CartView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok',()=>pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Clear Cart",
+							"request": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "X-Cart-Token",
+										"value": "{{cartToken}}"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart"
+									]
+								}
+							},
+							"description": "خالی کردن سبد. → `CartView` خالی.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok',()=>pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Add Bundle To Cart",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/cart/bundles",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"cart",
+										"bundles"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"bundleId\": \"{{bundleId}}\",\n  \"qty\": 1\n}"
+								}
+							},
+							"description": "`@OptionalAuth`. Body: `addCartBundleSchema` (`bundleId`, `qty`). Adds a package line; availability = min over components of floor(stock/qty). → `CartView` (line `kind:'bundle'`). خطاها (هر کدام `details.code` ماشین‌خوان دارند): **404** `bundle_not_found` «پکیج مورد نظر یافت نشد» (نبود / `isActive:false` / بدون قلم)؛ **409** `bundle_member_inactive` «یکی از اقلام این پکیج در حال حاضر قابل سفارش نیست» (عضو غیرفعال یا محصولش حذف‌شده)؛ **409** `bundle_out_of_stock` «این پکیج موجود نیست» (+ `details.packagesInStock`). اگر موجودی جزئی باشد خطا نمی‌دهد و `qty` به سقف موجود cap می‌شود.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Content",
+					"item": [
+						{
+							"name": "List Articles",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/content/articles?skip=0&take=12",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"content",
+										"articles"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "12"
+										}
+									]
+								}
+							},
+							"description": "Public (`@Public`). Query: `storefrontListArticlesQuerySchema` (`skip`,`take`). → `{ items: StorefrontArticleCardView[], total, skip, take }` — فقط مقالات منتشرشده.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Article Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/content/articles/{{articleSlug}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"content",
+										"articles",
+										"{{articleSlug}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontArticleDetailView` — ۴۰۴ اگر منتشر نشده.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Branches",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/content/branches",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"content",
+										"branches"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontBranchView[]`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Branch Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/content/branches/{{branchId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"content",
+										"branches",
+										"{{branchId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). Param: ObjectId. → `StorefrontBranchView`، ۴۰۴ اگر نبود.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "SEO Meta",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/content/seo?entityType=product&entityId={{productId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"content",
+										"seo"
+									],
+									"query": [
+										{
+											"key": "entityType",
+											"value": "product"
+										},
+										{
+											"key": "entityId",
+											"value": "{{productId}}"
+										}
+									]
+								}
+							},
+							"description": "Public (`@Public`). Query: `storefrontSeoQuerySchema` (`entityType`,`entityId`). → `StorefrontSeoView` (فیلدهای null اگر متادیتا ثبت نشده).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Public Settings",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/content/settings/public",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"content",
+										"settings",
+										"public"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `Record<string,string>` — کلید `site_title` و هر کلید با پیشوند `public_`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Shipping",
+					"item": [
+						{
+							"name": "List Shipping Methods",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/shipping/methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"shipping",
+										"methods"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontShippingMethodView[]` — روش‌های فعال مرتب بر اساس `sortOrder`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Payment Methods",
+					"item": [
+						{
+							"name": "List Payment Methods",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/payment-methods",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"payment-methods"
+									],
+									"query": []
+								}
+							},
+							"description": "Public (`@Public`). → `StorefrontPaymentMethodView[]` (`id`,`code`,`title`,`description`,`sortOrder`) — روش‌های فعال، مرتب بر اساس `sortOrder`. `code` (`online`|`cash`) را در Start Checkout به‌عنوان `paymentMethod` بفرست.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Warranty",
+					"item": [
+						{
+							"name": "Verify Warranty",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/warranty/verify?serial={{warrantySerial}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"warranty",
+										"verify"
+									],
+									"query": [
+										{
+											"key": "serial",
+											"value": "{{warrantySerial}}"
+										}
+									]
+								}
+							},
+							"description": "Public (`@Public`). Query: `storefrontWarrantyVerifyQuerySchema` (`serial`). → `StorefrontWarrantyView` (شامل `isActive`)، ۴۰۴ اگر سریال نبود.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Addresses",
+					"item": [
+						{
+							"name": "List Addresses",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/addresses",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"addresses"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated. → `AddressView[]` (پیش‌فرض اول).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Address",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/addresses",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"addresses"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"receiverName\": \"علی رضایی\",\n  \"receiverMobile\": \"09121234567\",\n  \"province\": \"تهران\",\n  \"city\": \"تهران\",\n  \"fullAddress\": \"خیابان آزادی، پلاک ۱\",\n  \"postalCode\": \"1234567890\",\n  \"isDefault\": true\n}"
+								}
+							},
+							"description": "Authenticated. Body: `createAddressSchema`. → `AddressView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('addressId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Address",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/addresses/{{addressId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"addresses",
+										"{{addressId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"city\": \"کرج\"\n}"
+								}
+							},
+							"description": "Authenticated, owner-scoped. Body: `updateAddressSchema`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Address",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/addresses/{{addressId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"addresses",
+										"{{addressId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated, owner-scoped. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Wishlist",
+					"item": [
+						{
+							"name": "List Wishlist",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/wishlist",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"wishlist"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated. → `WishlistItemView[]`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Add To Wishlist",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/wishlist",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"wishlist"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"productId\": \"{{productId}}\"\n}"
+								}
+							},
+							"description": "Authenticated. Body `{ productId }`. → `{ ok: true }` (idempotent).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Remove From Wishlist",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/wishlist/{{productId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"wishlist",
+										"{{productId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated. 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Checkout",
+					"item": [
+						{
+							"name": "Checkout Quote",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/checkout/quote",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"checkout",
+										"quote"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"shippingMethodId\": \"{{shippingMethodId}}\",\n  \"discountCode\": \"{{discountCode}}\",\n  \"redeemPoints\": 0\n}"
+								}
+							},
+							"description": "Authenticated. Body: `previewCheckoutSchema` (`shippingMethodId?`,`discountCode?`,`redeemPoints?`). → `CheckoutQuote` (subtotal/discount/points/shipping/total).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Start Checkout",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/checkout",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"checkout"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"addressId\": \"{{addressId}}\",\n  \"shippingMethodId\": \"{{shippingMethodId}}\",\n  \"redeemPoints\": 0,\n  \"paymentMethod\": \"online\"\n}"
+								}
+							},
+							"description": "Authenticated. Body: `startCheckoutSchema` (`addressId`,`shippingMethodId?`,`discountCode?`,`redeemPoints?`,`paymentMethod?`: `online`\\|`cash`, default `online` — از `GET storefront/payment-methods` بگیر و اگر `isActive:false` بود اجازه نده انتخاب بشه، سرور هم رد می‌کنه). Reserves stock, creates Order `pending_payment`, opens payment for `online` (`paymentUrl` null برای `cash` — منتظر تأیید ادمین). → `CheckoutStartResult` (`orderNumber`,`total`,`paymentUrl`,`paid`). 409 اگر سفارش pending باز دارید.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('orderNumber', pm.response.json().orderNumber);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Start Checkout (Cash)",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/checkout",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"checkout"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"addressId\": \"{{addressId}}\",\n  \"shippingMethodId\": \"{{shippingMethodId}}\",\n  \"redeemPoints\": 0,\n  \"paymentMethod\": \"cash\"\n}"
+								}
+							},
+							"description": "Authenticated. Same as Start Checkout with `paymentMethod: \"cash\"` — پرداخت در محل تحویل. 400 اگر روش `cash` در `payment-methods` غیرفعال باشد. `paymentUrl` در پاسخ `null` است؛ سفارش `pending_payment` می‌ماند تا ادمین با `Confirm Cash Payment` (`backoffice/orders`) آن را تسویه کند.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.test('no paymentUrl for cash', () => pm.expect(pm.response.json().paymentUrl).to.be.null);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Retry Payment",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/checkout/{{orderNumber}}/pay",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"checkout",
+										"{{orderNumber}}",
+										"pay"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated, owner-scoped. Re-opens payment for a pending order. → `{ paymentUrl }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Orders",
+					"item": [
+						{
+							"name": "List My Orders",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/orders?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"orders"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "Authenticated, owner-scoped. → `{ items: OrderListItemView[], total, skip, take }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Order Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/orders/{{orderNumber}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"orders",
+										"{{orderNumber}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated, owner-scoped. → `OrderDetailView` (items snapshot, address, statusHistory, payment). هر قلم: `{ kind: variant|bundle|spare_part, productTitle, productSlug, sku, imageUrl, qty, unitPrice, lineTotal }`. `productSlug` و `imageUrl` nullable هستند؛ `imageUrl` تصویر اصلی variant است و اگر نداشت تصویر محصول (باندل همیشه `null`). `kind` مسیر لینک را مشخص می‌کند.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Discounts",
+					"item": [
+						{
+							"name": "Validate Discount",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/discounts/validate",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"discounts",
+										"validate"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"code\": \"{{discountCode}}\"\n}"
+								}
+							},
+							"description": "Authenticated (per-user usage check). Body `{ code }`. Evaluates against the caller's cart. → `{ valid, code, discountAmount, eligibleSubtotal }` or 400 با پیام فارسی.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Loyalty",
+					"item": [
+						{
+							"name": "Loyalty Summary",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/loyalty?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"loyalty"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "Authenticated. → `{ balance, transactions: { items, total, skip, take } }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "My Referrals",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/loyalty/referrals",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"loyalty",
+										"referrals"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated. → `{ referralCode, grantedCount, invitees[] }` (موبایل ماسک‌شده).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Tickets",
+					"item": [
+						{
+							"name": "List Tickets",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/tickets?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"tickets"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "Authenticated, owner-scoped.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Ticket",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/tickets",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"tickets"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"subject\": \"سوال درباره گارانتی\",\n  \"body\": \"سلام، گارانتی این محصول چند ساله است؟\"\n}"
+								}
+							},
+							"description": "Authenticated. Body `{ subject, body }`. → ticket view.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('ticketId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Ticket Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/tickets/{{ticketId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"tickets",
+										"{{ticketId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated, owner-scoped.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Reply Ticket",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/tickets/{{ticketId}}/messages",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"tickets",
+										"{{ticketId}}",
+										"messages"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"body\": \"ممنون از پاسخ\"\n}"
+								}
+							},
+							"description": "Authenticated, owner-scoped. Body `{ body, attachmentUrl? }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Notifications",
+					"item": [
+						{
+							"name": "List Notifications",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/notifications",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"notifications"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated، owner-scoped. → `{ id, type, title, body, link, createdAt, read }`[] (newest first). `type` ∈ `order_shipped|order_delivered|order_cancelled|repair_status|discount|system`. `link` یک مسیر داخلی اپ است یا `null` — کلاینت روی کلیک اعلان به آن می‌رود (مثلاً `/dashboard/repairs/:id` برای `repair_status`).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"try { const b = pm.response.json(); if (Array.isArray(b) && b[0]) pm.environment.set('notificationId', b[0].id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Mark Notification Read",
+							"request": {
+								"method": "PATCH",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/notifications/{{notificationId}}/read",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"notifications",
+										"{{notificationId}}",
+										"read"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated، owner-scoped. → 204. اگر اعلان مال کاربر نباشد 404.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"try { const b = pm.response.json(); if (Array.isArray(b) && b[0]) pm.environment.set('notificationId', b[0].id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Mark All Notifications Read",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/notifications/read-all",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"notifications",
+										"read-all"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated. → 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"try { const b = pm.response.json(); if (Array.isArray(b) && b[0]) pm.environment.set('notificationId', b[0].id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
+					"name": "Repairs",
+					"item": [
+						{
+							"name": "List Repair Requests",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/repairs?skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"repairs"
+									],
+									"query": [
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "Authenticated, owner-scoped. Repair list \u2192 `{ items: `{ id, issueDescription, status, statusLabel, warrantySerial, attachments[], createdAt, updatedAt }`[], total, skip, take }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Repair Request",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/repairs",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"repairs"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"issueDescription\": \"دستگاه روشن نمی‌شود و صدای غیرعادی دارد\",\n  \"warrantySerial\": \"{{warrantySerial}}\"\n}"
+								}
+							},
+							"description": "Authenticated. Body `{ issueDescription, warrantySerial?, mediaIds? }`. \u2192 repair view `{ id, issueDescription, status, statusLabel, statusHistory: [{ status, statusLabel, at, note, by }], technicianNote, estimatedCost, warrantySerial, attachments[], createdAt, updatedAt }` \u2014 `statusHistory` \u0627\u0632 \u0642\u062f\u06cc\u0645 \u0628\u0647 \u062c\u062f\u06cc\u062f.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.response.code===201);",
+											"pm.environment.set('repairId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Decide Repair Quote",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/repairs/{{repairId}}/decision",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"repairs",
+										"{{repairId}}",
+										"decision"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"decision\": \"approve\",\n  \"note\": \"هزینه را تأیید می‌کنم\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"description": "Authenticated، owner-scoped، throttle ۱۰/دقیقه. Body `{ decision: 'approve'|'reject', note?: string|null (≤500) }`. تأیید یا رد `estimatedCost` توسط مشتری — فقط وقتی `status === awaiting_customer` و `estimatedCost !== null`. `approve` → `in_progress`، `reject` → `canceled`؛ یک ردیف با `by: 'customer'` و همان `note` به `statusHistory` اضافه می‌شود. → همان repair view به‌روزشده. خطاها: **404** اگر درخواست وجود نداشته باشد یا مال کاربر نباشد (۴۰۳ نمی‌دهیم تا وجود رکورد لو نرود)، **409** اگر وضعیت `awaiting_customer` نباشد / هزینه‌ی تخمینی ثبت نشده باشد / وضعیت هم‌زمان عوض شده باشد (compare-and-set).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+											"try { const b = pm.response.json(); pm.test('moved out of awaiting_customer', () => pm.expect(b.status).to.be.oneOf(['in_progress','canceled'])); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Repair Request Detail",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/repairs/{{repairId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"repairs",
+										"{{repairId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated, owner-scoped. Repair detail \u2192 `{ id, issueDescription, status, statusLabel, warrantySerial, attachments[], createdAt, updatedAt }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Public, unversioned. `{ status, uptime, db, timestamp }`."
+					}
+				}
+			]
+		}
+	]
+}
