@@ -32,6 +32,8 @@ export class NotificationRepository {
     type: NotificationType;
     title: string;
     body: string;
+    /** In-app deep link the client navigates to when the row is tapped. */
+    link?: string | null;
   }): Promise<Notification> {
     return this.prisma.notification.create({ data });
   }

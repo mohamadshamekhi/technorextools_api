@@ -2,13 +2,19 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { JsonLogger } from './common/logging/json-logger';
 import type { Env } from './config/env.schema';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { logger: new JsonLogger() });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new JsonLogger(),
+  });
+  // Exactly one reverse-proxy hop (nginx) in production, so `req.ip` — and with it
+  // the throttler's per-client bucket — is the real client, not the proxy.
+  app.set('trust proxy', 1);
   const config = app.get<ConfigService<Env, true>>(ConfigService);
 
   app.use(helmet());

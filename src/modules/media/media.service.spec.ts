@@ -64,6 +64,7 @@ function make(
       brands,
       categories,
       { findById: jest.fn().mockResolvedValue({ id: 's1' }) } as never,
+      { findById: jest.fn().mockResolvedValue({ id: 'bundle1' }) } as never,
       { findById: over.articleFindById ?? jest.fn().mockResolvedValue({ id: 'a1' }) } as never,
     ),
     media,

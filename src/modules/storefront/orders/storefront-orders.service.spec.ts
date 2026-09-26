@@ -1,6 +1,7 @@
 import { StorefrontOrdersService } from './storefront-orders.service';
 import type { OrderRepository } from '../../orders/repositories/order.repository';
 import type { UserRepository } from '../../access/repositories/user.repository';
+import type { MediaRepository } from '../../media/repositories/media.repository';
 
 describe('StorefrontOrdersService.stats', () => {
   it('zero-fills the trailing 6 months and buckets orders by placed-at month', async () => {
@@ -17,7 +18,8 @@ describe('StorefrontOrdersService.stats', () => {
       }),
     } as unknown as OrderRepository;
     const users = { findById: jest.fn().mockResolvedValue(null) } as unknown as UserRepository;
-    const svc = new StorefrontOrdersService(orders, users);
+    const media = { findByOwners: jest.fn().mockResolvedValue([]) } as unknown as MediaRepository;
+    const svc = new StorefrontOrdersService(orders, users, media);
 
     const stats = await svc.stats('u1');
 

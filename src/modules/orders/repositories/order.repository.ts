@@ -3,7 +3,15 @@ import { OrderStatus, Prisma, type PaymentMethodKind } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
 const detailInclude = {
-  items: true,
+  // Shallow relation selects so an order detail can carry each line's image and
+  // product link without a query per item.
+  items: {
+    include: {
+      variant: { select: { id: true, product: { select: { id: true, slug: true } } } },
+      bundle: { select: { id: true, slug: true } },
+      sparePart: { select: { id: true, slug: true } },
+    },
+  },
   statusHistory: { orderBy: { createdAt: 'asc' } },
   payments: { orderBy: { createdAt: 'asc' } },
   address: true,

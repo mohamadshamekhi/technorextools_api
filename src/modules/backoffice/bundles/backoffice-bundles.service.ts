@@ -1,9 +1,22 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { bundleAvailability } from '../../bundles/bundle.availability';
 import {
   BundleRepository,
   type BundleDetailRow,
 } from '../../bundles/repositories/bundle.repository';
-import { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
+import {
+  ProductVariantRepository,
+  type BundleMemberVariant,
+} from '../../catalog/repositories/product-variant.repository';
+
+/** Non-blocking problems reported alongside a saved bundle. */
+export interface BundleWarning {
+  code: 'BUNDLE_ITEM_OUT_OF_STOCK';
+  variantId: string;
+  sku: string;
+  stockQty: number;
+  requiredQty: number;
+}
 
 interface BundleInput {
   title?: string;
@@ -14,7 +27,9 @@ interface BundleInput {
   items?: Array<{ variantId: string; qty: number }>;
 }
 
-function toView(b: BundleDetailRow) {
+function toView(b: BundleDetailRow, warnings: BundleWarning[] = []) {
+  // Same verdict the storefront shows, so the panel can explain why a pack is hidden.
+  const { available, packagesInStock } = bundleAvailability(b);
   return {
     id: b.id,
     title: b.title,
@@ -22,12 +37,18 @@ function toView(b: BundleDetailRow) {
     description: b.description,
     bundlePrice: b.bundlePrice,
     isActive: b.isActive,
+    available,
+    packagesInStock,
     items: b.items.map((i) => ({
       variantId: i.variantId,
       qty: i.qty,
       sku: i.variant.sku,
       productTitle: i.variant.product.title,
+      stockQty: i.variant.stockQty,
+      isActive:
+        i.variant.isActive && i.variant.product.isActive && i.variant.product.deletedAt === null,
     })),
+    warnings,
   };
 }
 
@@ -40,7 +61,7 @@ export class BackofficeBundlesService {
 
   async list() {
     const rows = await this.bundles.findMany();
-    return rows.map(toView);
+    return rows.map((row) => toView(row));
   }
 
   async getById(id: string) {
@@ -60,7 +81,7 @@ export class BackofficeBundlesService {
     if (await this.bundles.findBySlug(input.slug)) {
       throw new BadRequestException('این اسلاگ قبلاً استفاده شده است');
     }
-    await this.assertVariants(input.items);
+    const warnings = await this.assertVariants(input.items);
     const created = await this.bundles.create(
       {
         title: input.title,
@@ -71,12 +92,12 @@ export class BackofficeBundlesService {
       },
       input.items,
     );
-    return toView(created);
+    return toView(created, warnings);
   }
 
   async update(id: string, input: BundleInput) {
     await this.getById(id);
-    if (input.items) await this.assertVariants(input.items);
+    const warnings = input.items ? await this.assertVariants(input.items) : [];
     const updated = await this.bundles.update(
       id,
       {
@@ -88,7 +109,7 @@ export class BackofficeBundlesService {
       },
       input.items,
     );
-    return toView(updated);
+    return toView(updated, warnings);
   }
 
   async remove(id: string): Promise<void> {
@@ -96,10 +117,42 @@ export class BackofficeBundlesService {
     await this.bundles.delete(id);
   }
 
-  private async assertVariants(items: Array<{ variantId: string; qty: number }>): Promise<void> {
+  /**
+   * Members must exist and be orderable, otherwise the pack would publish as
+   * `available: false` with nothing telling the admin why. Being out of stock is
+   * temporary, so it only warns — it never blocks the save.
+   */
+  private async assertVariants(
+    items: Array<{ variantId: string; qty: number }>,
+  ): Promise<BundleWarning[]> {
+    const rows = await this.variants.findManyByIdsWithStatus(items.map((i) => i.variantId));
+    const byId = new Map<string, BundleMemberVariant>(rows.map((v) => [v.id, v]));
+
+    const warnings: BundleWarning[] = [];
     for (const item of items) {
-      const variant = await this.variants.findById(item.variantId);
+      const variant = byId.get(item.variantId);
       if (!variant) throw new BadRequestException(`واریانت ${item.variantId} یافت نشد`);
+      if (!variant.isActive || !variant.product.isActive || variant.product.deletedAt !== null) {
+        throw new BadRequestException({
+          message: `«${variant.product.title}» (کد ${variant.sku}) غیرفعال یا حذف‌شده است و نمی‌تواند عضو پکیج باشد`,
+          details: {
+            code: 'BUNDLE_ITEM_INACTIVE',
+            variantId: variant.id,
+            sku: variant.sku,
+            productTitle: variant.product.title,
+          },
+        });
+      }
+      if (variant.stockQty < item.qty) {
+        warnings.push({
+          code: 'BUNDLE_ITEM_OUT_OF_STOCK',
+          variantId: variant.id,
+          sku: variant.sku,
+          stockQty: variant.stockQty,
+          requiredQty: item.qty,
+        });
+      }
     }
+    return warnings;
   }
 }

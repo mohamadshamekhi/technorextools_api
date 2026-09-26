@@ -22,6 +22,14 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm build
 
+# ---- tooling: one-shot `prisma db push` / `prisma db seed` ----
+# Keeps the dev deps (the seed script runs through ts-node), so it must stay a
+# separate stage from `runtime` — never deploy this one as the server.
+FROM base AS tooling
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+CMD ["sh", "-c", "pnpm prisma:push && pnpm prisma:seed"]
+
 # ---- production-only deps (Prisma client generated via postinstall) ----
 FROM base AS prod-deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml prisma.config.ts ./

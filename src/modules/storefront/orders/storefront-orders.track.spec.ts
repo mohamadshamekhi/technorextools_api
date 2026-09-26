@@ -3,6 +3,7 @@ import { OrderStatus } from '@prisma/client';
 import { StorefrontOrdersService } from './storefront-orders.service';
 import type { OrderDetailRow, OrderRepository } from '../../orders/repositories/order.repository';
 import type { UserRepository } from '../../access/repositories/user.repository';
+import type { MediaRepository } from '../../media/repositories/media.repository';
 
 const order = {
   id: 'o1',
@@ -45,7 +46,8 @@ function build(found: OrderDetailRow | null = order, buyerMobile = '09120000000'
   const users = {
     findById: jest.fn().mockResolvedValue({ mobile: buyerMobile }),
   } as unknown as UserRepository;
-  return new StorefrontOrdersService(orders, users);
+  const media = { findByOwners: jest.fn().mockResolvedValue([]) } as unknown as MediaRepository;
+  return new StorefrontOrdersService(orders, users, media);
 }
 
 describe('StorefrontOrdersService.track', () => {

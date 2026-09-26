@@ -26,8 +26,22 @@ const listRepairsQuerySchema = z.object({
 });
 type ListRepairsQuery = z.infer<typeof listRepairsQuerySchema>;
 
-const setRepairStatusSchema = z.object({ status: z.nativeEnum(RepairStatus) });
+const setRepairStatusSchema = z.object({
+  status: z.nativeEnum(RepairStatus),
+  /** Public note stored on this timeline entry and shown to the customer. */
+  note: z.string().trim().max(500).nullable().optional(),
+});
 type SetRepairStatusInput = z.infer<typeof setRepairStatusSchema>;
+
+const updateRepairSchema = z
+  .object({
+    technicianNote: z.string().trim().max(2000).nullable(),
+    // Integer Toman.
+    estimatedCost: z.number().int().min(0).max(1_000_000_000).nullable(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'فیلدی برای تغییر ارسال نشده' });
+type UpdateRepairInput = z.infer<typeof updateRepairSchema>;
 
 /** Admin panel — `abzar/backoffice`. Path: `/api/v1/backoffice/warranties`. */
 @Controller('backoffice/warranties')
@@ -64,6 +78,16 @@ export class BackofficeRepairsController {
     @Param('id') id: string,
     @Body(new ZodValidationPipe(setRepairStatusSchema)) body: SetRepairStatusInput,
   ) {
-    return this.warranties.setRepairStatus(id, body.status);
+    return this.warranties.setRepairStatus(id, body.status, body.note);
+  }
+
+  /** Technician findings — does not change the status or the timeline. */
+  @RequirePermissions('repairs.manage')
+  @Patch(':id')
+  update(
+    @Param('id') id: string,
+    @Body(new ZodValidationPipe(updateRepairSchema)) body: UpdateRepairInput,
+  ) {
+    return this.warranties.updateRepair(id, body);
   }
 }

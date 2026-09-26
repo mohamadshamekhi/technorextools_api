@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import type { Media, MediaKind, MediaOwnerType } from '@prisma/client';
 import type { Env } from '../../config/env.schema';
+import { BundleRepository } from '../bundles/repositories/bundle.repository';
 import { BrandRepository } from '../catalog/repositories/brand.repository';
 import { SparePartRepository } from '../spare-parts/repositories/spare-part.repository';
 import { CategoryRepository } from '../catalog/repositories/category.repository';
@@ -16,6 +17,7 @@ import { ProductRepository } from '../catalog/repositories/product.repository';
 import { ProductVariantRepository } from '../catalog/repositories/product-variant.repository';
 import { MediaRepository } from './repositories/media.repository';
 import { convertToWebp, WEBP_CONVERTIBLE_TYPES } from './image-webp';
+import { decodeMultipartFilename } from './multipart-filename';
 import { fetchRemoteFile } from './remote-fetch';
 import { presignDelete, presignPut, type S3Config } from './s3-presigner';
 import type {
@@ -96,6 +98,7 @@ export class MediaService {
     private readonly brands: BrandRepository,
     private readonly categories: CategoryRepository,
     private readonly spareParts: SparePartRepository,
+    private readonly bundles: BundleRepository,
     private readonly articles: ArticleRepository,
   ) {
     const endpoint = config.get('S3_ENDPOINT', { infer: true });
@@ -153,10 +156,13 @@ export class MediaService {
     }
     const size = body.length;
 
+    // multipart filenames reach us latin-1-decoded — recover the real UTF-8 name.
+    const originalName = decodeMultipartFilename(file.originalname);
+
     const ext =
       contentType === 'image/webp' && contentType !== sourceType
         ? 'webp'
-        : (extFromName(file.originalname) ?? MIME_EXT[contentType] ?? 'bin');
+        : (extFromName(originalName) ?? MIME_EXT[contentType] ?? 'bin');
     const safeFolder = /^[a-z0-9-]{1,40}$/.test(input.folder ?? '') ? input.folder! : 'misc';
     const d = new Date();
     const key = `${safeFolder}/${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${randomUUID()}.${ext}`;
@@ -176,7 +182,7 @@ export class MediaService {
       url: `${this.s3.publicBaseUrl.replace(/\/$/, '')}/${key}`,
       contentType,
       size,
-      originalName: file.originalname || null,
+      originalName: originalName || null,
       kind: kindOf(contentType),
       ownerType: input.ownerType ?? null,
       ownerId: input.ownerId ?? null,
@@ -311,6 +317,8 @@ export class MediaService {
           return !!(await this.variants.findById(ownerId));
         case 'SPARE_PART':
           return !!(await this.spareParts.findById(ownerId));
+        case 'BUNDLE':
+          return !!(await this.bundles.findById(ownerId));
         case 'BRAND':
           return !!(await this.brands.findById(ownerId));
         case 'CATEGORY':

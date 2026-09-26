@@ -66,9 +66,19 @@ non-superadmin role that manages catalog/content. The client PUT may send any `C
 - **Local DB** — `docker compose up -d` (`pnpm db:up`) runs the official `mongo:7.0` image with
   `--replSet rs0`; the healthcheck self-initiates the replica set on first start. (The old
   `bitnami/mongodb` image was removed from Docker Hub.) `pnpm db:down` tears it down.
-- **Docker** — multi-stage `Dockerfile` (`deps → build → prod-deps → runtime`), runs as the
-  `node` user, `node dist/main` on `:4000`. `.dockerignore` keeps the context lean.
+- **Docker** — multi-stage `Dockerfile` (`deps → build → tooling → prod-deps → runtime`), runs
+  as the `node` user, `node dist/main` on `:4000`. `.dockerignore` keeps the context lean. The
+  `tooling` stage keeps the dev deps so `prisma db push` / `prisma db seed` (ts-node) can run
+  as a one-shot container — never deploy it as the server.
 - **e2e tests** self-skip unless `RUN_E2E=1`; they need a reachable `DATABASE_URL`.
+- **Production server** — `deploy/` holds the whole recipe: `docker-compose.prod.yml` (api +
+  single-node Mongo replica set + Redis on an internal network; only `127.0.0.1:4000` is
+  published), `deploy/setup-server.sh` (one-time Ubuntu bootstrap: docker, nginx, certbot, ufw,
+  fail2ban, swap), `deploy/deploy.sh` (build + restart, `--seed` to push the schema and seed),
+  `deploy/backup-mongo.sh` (nightly `mongodump`), `deploy/nginx/abzar-api.conf` and
+  `deploy/env.production.example`. Step-by-step in `deploy/README.md`.
+- The app sets **`trust proxy = 1`** (`src/main.ts`) — exactly one nginx hop — so the throttler
+  buckets by the real client IP. Adding another proxy (e.g. Cloudflare) means raising it.
 
 ## Security
 

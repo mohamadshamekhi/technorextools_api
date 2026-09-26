@@ -44,6 +44,15 @@ export class OtpChallengeRepository {
     return this.prisma.otpChallenge.create({ data });
   }
 
+  /**
+   * Drop a challenge whose SMS failed to send — a soft `consume` would still
+   * count against `countSince`, burning the caller's hourly quota for a code
+   * they never received.
+   */
+  async delete(id: string): Promise<void> {
+    await this.prisma.otpChallenge.delete({ where: { id } });
+  }
+
   incrementAttempts(id: string): Promise<OtpChallenge> {
     return this.prisma.otpChallenge.update({
       where: { id },

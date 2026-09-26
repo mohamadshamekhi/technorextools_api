@@ -444,6 +444,7 @@ enum MediaOwnerType {
   PRODUCT
   PRODUCT_VARIANT
   SPARE_PART
+  BUNDLE
   BRAND
   ARTICLE
   CATEGORY
@@ -931,6 +932,8 @@ model Notification {
   type      NotificationType
   title     String
   body      String
+  /// Optional in-app deep link the client navigates to, e.g. `/dashboard/repairs/<id>`.
+  link      String?
   read      Boolean          @default(false)
   createdAt DateTime         @default(now())
 
@@ -942,6 +945,7 @@ enum NotificationType {
   order_shipped
   order_delivered
   order_cancelled
+  repair_status
   discount
   system
 }
@@ -1012,24 +1016,53 @@ model Warranty {
 }
 
 model RepairRequest {
-  id               String        @id @default(auto()) @map("_id") @db.ObjectId
-  warrantyId       String?       @db.ObjectId
-  warranty         Warranty?     @relation(fields: [warrantyId], references: [id], onDelete: SetNull)
-  userId           String        @db.ObjectId
-  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String              @id @default(auto()) @map("_id") @db.ObjectId
+  warrantyId       String?             @db.ObjectId
+  warranty         Warranty?           @relation(fields: [warrantyId], references: [id], onDelete: SetNull)
+  userId           String              @db.ObjectId
+  user             User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   issueDescription String
-  status           RepairStatus  @default(received)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
+  status           RepairStatus        @default(received)
+  /// Append-only status timeline (embedded) — the customer panel renders it instead
+  /// of guessing progress from the enum's ordering.
+  statusHistory    RepairStatusEvent[]
+  /// Technician's findings, shown to the customer in the panel.
+  technicianNote   String?
+  /// Quoted repair cost in integer Toman; null until the technician sets one.
+  estimatedCost    Int?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@index([userId])
+  @@index([status])
   @@map("repair_requests")
+}
+
+/// One transition in a repair request's lifecycle.
+type RepairStatusEvent {
+  status RepairStatus
+  at     DateTime
+  note   String? // public note for this step (admin's or the customer's)
+  /// Who moved it. Absent on rows written before this field existed — read as `admin`.
+  by     RepairEventActor?
+}
+
+/// Who caused a repair status change.
+enum RepairEventActor {
+  admin
+  customer
+  system
 }
 
 enum RepairStatus {
   received
+  reviewing
+  awaiting_customer
+  awaiting_parts
   in_progress
   done
+  delivered
+  canceled
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

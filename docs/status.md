@@ -54,10 +54,20 @@ content (articles, branches, seo-meta, public settings) · shipping methods · w
 - **support / tickets** (`support/` @Global core) — `storefront/tickets` (+ messages),
   `backoffice/tickets` (reply as staff → `answered`, set status).
 - **warranty / repairs** (`warranty/` @Global core) — `backoffice/warranties` issue + list-by-order;
-  `storefront/repairs` create/list/detail; `backoffice/repairs` list + status.
+  `storefront/repairs` create/list/detail; `backoffice/repairs` list (filter by `status`) + status
+  transition over the 8-value `RepairStatus` (`received`/`reviewing`/`awaiting_customer`/`awaiting_parts`/`in_progress`/`done`/`delivered`/`canceled`); every repair view carries `statusLabel`,
+  an append-only embedded `statusHistory[{ status, statusLabel, at, note, by }]` (back-filled for pre-timeline rows),
+  and `POST storefront/repairs/:id/decision` where the customer approves/rejects the quoted `estimatedCost`
+  (only from `awaiting_customer`, owner-scoped compare-and-set → `in_progress`/`canceled`),
+  plus `technicianNote` / `estimatedCost` set by `PATCH backoffice/repairs/:id`. A status change by an admin
+  also writes a `repair_status` notification with `link: /dashboard/repairs/:id`.
 - **content admin** — `backoffice/content` articles/branches CRUD + seo upsert; `backoffice/settings`
   (list + bulk PUT).
-- **bundles admin** — `backoffice/bundles` CRUD (owns `bundle_items`).
+- **bundles admin** — `backoffice/bundles` CRUD (owns `bundle_items`). Members are validated on write:
+  an inactive/soft-deleted member is a 400 (`BUNDLE_ITEM_INACTIVE`), a short-stock member only warns
+  (`warnings[]`, `BUNDLE_ITEM_OUT_OF_STOCK`). Admin reads carry `available` / `packagesInStock`. A pack's cover image is a
+  `Media` row with `ownerType: BUNDLE` / `purpose: GALLERY` via `POST backoffice/media/upload`; the
+  storefront view falls back to the first member's image and exposes `compareAtTotal` / `savingAmount`.
 - **spare parts** (`spare-parts/` @Global core, `SparePart` + `SparePartCompatibility`) — separate model, never
   in the product list. `backoffice/spare-parts` CRUD (`spare-parts.manage`; `productIds` on create/update sets
   compatibility), `backoffice/products/:productId/spare-parts` GET/PUT (product-side replace);

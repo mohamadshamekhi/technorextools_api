@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { RepairStatus } from '@prisma/client';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { NotificationType, type RepairStatus } from '@prisma/client';
 import { OrderRepository } from '../../orders/repositories/order.repository';
 import {
   RepairRequestRepository,
@@ -7,13 +7,23 @@ import {
 } from '../../warranty/repositories/repair-request.repository';
 import { WarrantyRepository } from '../../warranty/repositories/warranty.repository';
 import { MediaRepository } from '../../media/repositories/media.repository';
-import { toAttachmentViews, type RepairAttachmentView } from '../../warranty/repair.view';
+import { NotificationRepository } from '../../notifications/repositories/notification.repository';
+import {
+  repairStatusLabel,
+  toAttachmentViews,
+  toStatusHistoryView,
+  type RepairAttachmentView,
+} from '../../warranty/repair.view';
 
 function toRepairView(r: RepairRequestRow, attachments: RepairAttachmentView[] = []) {
   return {
     id: r.id,
     issueDescription: r.issueDescription,
     status: r.status,
+    statusLabel: repairStatusLabel(r.status),
+    statusHistory: toStatusHistoryView(r),
+    technicianNote: r.technicianNote,
+    estimatedCost: r.estimatedCost,
     user: { name: r.user.fullName, mobile: r.user.mobile },
     warranty: r.warranty
       ? { serialNumber: r.warranty.serialNumber, orderId: r.warranty.orderId }
@@ -26,11 +36,14 @@ function toRepairView(r: RepairRequestRow, attachments: RepairAttachmentView[] =
 
 @Injectable()
 export class BackofficeWarrantiesService {
+  private readonly logger = new Logger('Repairs');
+
   constructor(
     private readonly warranties: WarrantyRepository,
     private readonly repairs: RepairRequestRepository,
     private readonly orders: OrderRepository,
     private readonly media: MediaRepository,
+    private readonly notifications: NotificationRepository,
   ) {}
 
   listForOrder(orderId: string) {
@@ -70,13 +83,53 @@ export class BackofficeWarrantiesService {
     return { items, total, skip: query.skip, take: query.take };
   }
 
-  async setRepairStatus(id: string, status: RepairStatus) {
+  async setRepairStatus(id: string, status: RepairStatus, note?: string | null) {
     const existing = await this.repairs.findById(id);
     if (!existing) throw new NotFoundException('درخواست تعمیر یافت نشد');
-    const updated = await this.repairs.setStatus(id, status);
+    // Re-sending the same status is a no-op: no timeline entry, no notification.
+    const updated =
+      existing.status === status && !note
+        ? existing
+        : await this.repairs.setStatus(id, status, note);
+    if (existing.status !== status) {
+      await this.notifyStatusChange(updated.userId, id, status);
+    }
     return toRepairView(
       updated,
       toAttachmentViews(await this.media.findByOwner('REPAIR_REQUEST', id)),
     );
+  }
+
+  /** Technician findings — separate from the status flow, no notification. */
+  async updateRepair(
+    id: string,
+    input: { technicianNote?: string | null; estimatedCost?: number | null },
+  ) {
+    const existing = await this.repairs.findById(id);
+    if (!existing) throw new NotFoundException('درخواست تعمیر یافت نشد');
+    const updated = await this.repairs.update(id, input);
+    return toRepairView(
+      updated,
+      toAttachmentViews(await this.media.findByOwner('REPAIR_REQUEST', id)),
+    );
+  }
+
+  /** Best-effort in-app notification — a failure here must not fail the transition. */
+  private async notifyStatusChange(
+    userId: string,
+    repairId: string,
+    status: RepairStatus,
+  ): Promise<void> {
+    try {
+      await this.notifications.create({
+        userId,
+        type: NotificationType.repair_status,
+        title: 'وضعیت درخواست تعمیر',
+        body: `درخواست تعمیر شما ${repairStatusLabel(status)} است.`,
+        link: `/dashboard/repairs/${repairId}`,
+      });
+    } catch (err) {
+      this.logger.warn(`repair notify failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

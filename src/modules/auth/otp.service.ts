@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
+  ServiceUnavailableException,
   UnauthorizedException,
   HttpException,
   HttpStatus,
@@ -19,8 +21,15 @@ export interface OtpRequestResult {
   devCode?: string;
 }
 
+/** Never log a full mobile number alongside a failure. */
+function maskMobile(mobile: string): string {
+  return mobile.length > 6 ? `${mobile.slice(0, 4)}***${mobile.slice(-2)}` : '***';
+}
+
 @Injectable()
 export class OtpService {
+  private readonly logger = new Logger('Otp');
+
   constructor(
     private readonly challenges: OtpChallengeRepository,
     private readonly sms: SmsService,
@@ -53,7 +62,7 @@ export class OtpService {
     const code = String(randomInt(0, 100_000)).padStart(5, '0');
     // Invalidate any earlier live challenge for this mobile.
     await this.challenges.invalidateActive(mobile);
-    await this.challenges.create({
+    const challenge = await this.challenges.create({
       mobile,
       codeHash: await argon2.hash(code),
       referralCode: referralCode ?? null,
@@ -62,7 +71,18 @@ export class OtpService {
       lastSentAt: new Date(),
     });
 
-    await this.sms.sendOtp(mobile, code);
+    try {
+      await this.sms.sendOtp(mobile, code);
+    } catch (err) {
+      // The challenge is written before the send so the code is never in flight
+      // unpersisted; if the send fails it must go, or the caller sits through a
+      // resend cooldown (and loses hourly quota) for a code they never got.
+      await this.challenges.delete(challenge.id).catch(() => undefined);
+      this.logger.error(
+        `OTP send failed for ${maskMobile(mobile)}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw new ServiceUnavailableException('ارسال پیامک ناموفق بود. لطفاً دوباره تلاش کنید.');
+    }
 
     return {
       expiresIn: ttl,

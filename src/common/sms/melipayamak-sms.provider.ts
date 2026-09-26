@@ -118,7 +118,14 @@ export class MelipayamakSmsProvider extends SmsService {
         `MelliPayamak request failed: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
-    if (!res.ok) throw new Error(`MelliPayamak responded ${res.status}`);
+    if (!res.ok) {
+      // The status alone says nothing — MelliPayamak puts the reason in the body
+      // (bad bodyId, unapproved pattern, wrong arg count …).
+      const body = await res.text().catch(() => '');
+      throw new Error(
+        `MelliPayamak responded ${res.status}${body ? `: ${body.slice(0, 300)}` : ''}`,
+      );
+    }
     return res;
   }
 }

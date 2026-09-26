@@ -93,3 +93,44 @@ describe('MelipayamakSmsProvider', () => {
     );
   });
 });
+
+describe('MelipayamakSmsProvider — HTTP error diagnostics', () => {
+  let fetchMock: jest.SpyInstance;
+  afterEach(() => fetchMock?.mockRestore());
+
+  it('includes the response body in the thrown error', async () => {
+    fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 400,
+      text: () => Promise.resolve('{"status":"شناسه متن یافت نشد"}'),
+    } as Response);
+
+    const provider = new MelipayamakSmsProvider({
+      apiKey: 'key',
+      otpPatternId: '42',
+      templatePatternIds: {},
+    });
+
+    await expect(provider.sendOtp('09120000000', '55555')).rejects.toThrow(
+      /MelliPayamak responded 400: .*شناسه متن یافت نشد/,
+    );
+  });
+
+  it('still throws with just the status when the body is unreadable', async () => {
+    fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: () => Promise.reject(new Error('stream closed')),
+    } as unknown as Response);
+
+    const provider = new MelipayamakSmsProvider({
+      apiKey: 'key',
+      otpPatternId: '42',
+      templatePatternIds: {},
+    });
+
+    await expect(provider.sendOtp('09120000000', '55555')).rejects.toThrow(
+      'MelliPayamak responded 503',
+    );
+  });
+});

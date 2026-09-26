@@ -4,6 +4,7 @@ import { ProductRepository } from '../../catalog/repositories/product.repository
 import { CategoryRepository } from '../../catalog/repositories/category.repository';
 import { BrandRepository } from '../../catalog/repositories/brand.repository';
 import { CommentRepository } from '../../catalog/repositories/comment.repository';
+import { bundleAvailability } from '../../bundles/bundle.availability';
 import {
   BundleRepository,
   type BundleDetailRow,
@@ -127,7 +128,9 @@ export interface StorefrontBundleItemView {
     stockQty: number;
     effectivePrice: number;
     imageUrl: string | null;
-    product: { id: string; title: string; slug: string };
+    /** The variant itself is orderable. */
+    isActive: boolean;
+    product: { id: string; title: string; slug: string; isActive: boolean };
   };
 }
 
@@ -137,6 +140,16 @@ export interface StorefrontBundleView {
   slug: string;
   description: string | null;
   bundlePrice: number;
+  /** Sum of the members' own prices × qty — what the pack would cost separately. */
+  compareAtTotal: number;
+  /** `bundlePrice` saving against `compareAtTotal`; 0 when the pack isn't cheaper. */
+  savingAmount: number;
+  /** The pack's own cover image, falling back to its first member's. */
+  imageUrl: string | null;
+  /** Whole packs the members' stock covers — 0 when any member is short. */
+  packagesInStock: number;
+  /** Server-side verdict: active pack + orderable members + at least one pack in stock. */
+  available: boolean;
   items: StorefrontBundleItemView[];
 }
 
@@ -262,7 +275,7 @@ export class StorefrontCatalogService {
 
   async listBundles(): Promise<StorefrontBundleView[]> {
     const rows = await this.bundles.findMany({ isActive: true });
-    const media = await this.variantMedia(rows);
+    const media = await this.bundleMedia(rows);
     return rows.map((b) => toBundleView(b, media));
   }
 
@@ -271,21 +284,31 @@ export class StorefrontCatalogService {
     if (!bundle || !bundle.isActive) {
       throw new NotFoundException('پکیج یافت نشد');
     }
-    return toBundleView(bundle, await this.variantMedia([bundle]));
+    return toBundleView(bundle, await this.bundleMedia([bundle]));
   }
 
-  /** Media rows for every variant referenced by the given bundles, grouped by variant id. */
-  private async variantMedia(bundles: BundleDetailRow[]): Promise<Map<string, Media[]>> {
+  /**
+   * Every image a bundle card needs, in three batched queries: the pack's own
+   * cover (`BUNDLE`), each member variant's gallery, and each member product's
+   * gallery as the variant-level fallback (most catalogs only fill the latter,
+   * which is why variant images used to come back null).
+   */
+  private async bundleMedia(bundles: BundleDetailRow[]): Promise<BundleMedia> {
+    const bundleIds = bundles.map((b) => b.id);
     const variantIds = [...new Set(bundles.flatMap((b) => b.items.map((i) => i.variant.id)))];
-    const rows = await this.media.findByOwners('PRODUCT_VARIANT', variantIds);
-    const map = new Map<string, Media[]>();
-    for (const row of rows) {
-      if (!row.ownerId) continue;
-      const list = map.get(row.ownerId);
-      if (list) list.push(row);
-      else map.set(row.ownerId, [row]);
-    }
-    return map;
+    const productIds = [
+      ...new Set(bundles.flatMap((b) => b.items.map((i) => i.variant.product.id))),
+    ];
+    const [bundleRows, variantRows, productRows] = await Promise.all([
+      bundleIds.length ? this.media.findByOwners('BUNDLE', bundleIds) : [],
+      variantIds.length ? this.media.findByOwners('PRODUCT_VARIANT', variantIds) : [],
+      productIds.length ? this.media.findByOwners('PRODUCT', productIds) : [],
+    ]);
+    return {
+      byBundle: groupByOwner(bundleRows),
+      byVariant: groupByOwner(variantRows),
+      byProduct: groupByOwner(productRows),
+    };
   }
 
   async categoryTree(): Promise<StorefrontCategoryNode[]> {
@@ -519,32 +542,60 @@ function toCardView(
   };
 }
 
-function toBundleView(
-  bundle: BundleDetailRow,
-  variantMedia: Map<string, Media[]>,
-): StorefrontBundleView {
+interface BundleMedia {
+  byBundle: Map<string, Media[]>;
+  byVariant: Map<string, Media[]>;
+  byProduct: Map<string, Media[]>;
+}
+
+function groupByOwner(rows: Media[]): Map<string, Media[]> {
+  const map = new Map<string, Media[]>();
+  for (const row of rows) {
+    if (!row.ownerId) continue;
+    const list = map.get(row.ownerId);
+    if (list) list.push(row);
+    else map.set(row.ownerId, [row]);
+  }
+  return map;
+}
+
+function toBundleView(bundle: BundleDetailRow, media: BundleMedia): StorefrontBundleView {
+  const items = bundle.items.map((item) => ({
+    qty: item.qty,
+    variant: {
+      id: item.variant.id,
+      sku: item.variant.sku,
+      colorName: item.variant.colorName,
+      stockQty: item.variant.stockQty,
+      effectivePrice: item.variant.priceOverride ?? item.variant.product.basePrice,
+      imageUrl:
+        mainImageUrlOf(media.byVariant.get(item.variant.id) ?? []) ??
+        mainImageUrlOf(media.byProduct.get(item.variant.product.id) ?? []),
+      isActive: item.variant.isActive,
+      product: {
+        id: item.variant.product.id,
+        title: item.variant.product.title,
+        slug: item.variant.product.slug,
+        // A soft-deleted product is not orderable either, so it reads as inactive.
+        isActive: item.variant.product.isActive && item.variant.product.deletedAt === null,
+      },
+    },
+  }));
+  const compareAtTotal = items.reduce((sum, i) => sum + i.variant.effectivePrice * i.qty, 0);
+  const { packagesInStock, available } = bundleAvailability(bundle);
   return {
     id: bundle.id,
     title: bundle.title,
     slug: bundle.slug,
     description: bundle.description,
     bundlePrice: bundle.bundlePrice,
-    items: bundle.items.map((item) => ({
-      qty: item.qty,
-      variant: {
-        id: item.variant.id,
-        sku: item.variant.sku,
-        colorName: item.variant.colorName,
-        stockQty: item.variant.stockQty,
-        effectivePrice: item.variant.priceOverride ?? item.variant.product.basePrice,
-        imageUrl: mainImageUrlOf(variantMedia.get(item.variant.id) ?? []),
-        product: {
-          id: item.variant.product.id,
-          title: item.variant.product.title,
-          slug: item.variant.product.slug,
-        },
-      },
-    })),
+    compareAtTotal,
+    savingAmount: Math.max(0, compareAtTotal - bundle.bundlePrice),
+    imageUrl:
+      mainImageUrlOf(media.byBundle.get(bundle.id) ?? []) ?? items[0]?.variant.imageUrl ?? null,
+    packagesInStock,
+    available,
+    items,
   };
 }
 

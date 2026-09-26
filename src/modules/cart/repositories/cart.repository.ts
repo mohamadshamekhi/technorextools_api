@@ -11,7 +11,17 @@ const cartItemInclude = {
   },
   bundle: {
     include: {
-      items: { include: { variant: { include: { product: { select: { title: true } } } } } },
+      items: {
+        include: {
+          variant: {
+            // isActive/deletedAt feed `bundleAvailability` — a member whose product
+            // is disabled or soft-deleted makes the whole pack unbuyable.
+            include: {
+              product: { select: { title: true, isActive: true, deletedAt: true } },
+            },
+          },
+        },
+      },
     },
   },
   sparePart: true,

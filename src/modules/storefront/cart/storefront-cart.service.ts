@@ -7,6 +7,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import type { AuthenticatedUser } from '../../auth/token.types';
 import { ProductVariantRepository } from '../../catalog/repositories/product-variant.repository';
+import { bundleAvailability } from '../../bundles/bundle.availability';
 import { BundleRepository } from '../../bundles/repositories/bundle.repository';
 import { SparePartRepository } from '../../spare-parts/repositories/spare-part.repository';
 import { resolveUnitPrice } from '../../cart/cart.pricing';
@@ -70,13 +71,25 @@ export class StorefrontCartService {
   async addBundle(owner: CartOwner, bundleId: string, qty: number): Promise<CartView> {
     const bundle = await this.bundles.findById(bundleId);
     if (!bundle || !bundle.isActive || bundle.items.length === 0) {
-      throw new NotFoundException('پکیج مورد نظر یافت نشد');
+      throw new NotFoundException({
+        message: 'پکیج مورد نظر یافت نشد',
+        details: { code: 'bundle_not_found' },
+      });
     }
-    const packagesInStock = Math.min(
-      ...bundle.items.map((bi) => (bi.qty > 0 ? Math.floor(bi.variant.stockQty / bi.qty) : 0)),
-    );
+    // A disabled/deleted member used to slip through (only stock was checked) and
+    // then failed at checkout — reject it here with a message the client can show.
+    const { membersActive, packagesInStock } = bundleAvailability(bundle);
+    if (!membersActive) {
+      throw new ConflictException({
+        message: 'یکی از اقلام این پکیج در حال حاضر قابل سفارش نیست',
+        details: { code: 'bundle_member_inactive' },
+      });
+    }
     if (packagesInStock < 1) {
-      throw new ConflictException('این پکیج موجود نیست');
+      throw new ConflictException({
+        message: 'این پکیج موجود نیست',
+        details: { code: 'bundle_out_of_stock', packagesInStock },
+      });
     }
 
     const cart = await this.ensureCart(owner);
@@ -368,15 +381,7 @@ function toLine(
 
   if (item.bundle) {
     const bundle = item.bundle;
-    const packagesInStock = bundle.items.length
-      ? Math.min(
-          ...bundle.items.map((bi) => (bi.qty > 0 ? Math.floor(bi.variant.stockQty / bi.qty) : 0)),
-        )
-      : 0;
-    const available =
-      bundle.isActive &&
-      bundle.items.every((bi) => bi.variant.isActive) &&
-      packagesInStock >= item.qty;
+    const { packagesInStock, available } = bundleAvailability(bundle, item.qty);
     return {
       id: item.id,
       kind: 'bundle',

@@ -7,7 +7,16 @@ const detailInclude = {
     include: {
       variant: {
         include: {
-          product: { select: { id: true, title: true, slug: true, basePrice: true } },
+          product: {
+            select: {
+              id: true,
+              title: true,
+              slug: true,
+              basePrice: true,
+              isActive: true,
+              deletedAt: true,
+            },
+          },
         },
       },
     },

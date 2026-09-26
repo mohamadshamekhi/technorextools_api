@@ -3,6 +3,8 @@ import type { OrderStatus, PaymentMethodKind } from '@prisma/client';
 import { OrderStatus as Status } from '@prisma/client';
 import { OrderRepository, type OrderDetailRow } from '../../orders/repositories/order.repository';
 import { UserRepository } from '../../access/repositories/user.repository';
+import { mainImageUrlOf } from '../../media/media.gallery';
+import { MediaRepository } from '../../media/repositories/media.repository';
 import { statusFa } from '../../orders/orders.service';
 
 export interface OrderListItemView {
@@ -44,14 +46,34 @@ export interface OrderDetailView extends OrderListItemView {
     postalCode: string;
   };
   items: Array<{
+    /** Which catalog entity the line points at — decides the link's base path. */
+    kind: 'variant' | 'bundle' | 'spare_part';
     productTitle: string;
+    /** Slug of the product / bundle / spare part, or null if it was deleted. */
+    productSlug: string | null;
     sku: string | null;
+    /** Main image of the variant, falling back to the product's; null if none. */
+    imageUrl: string | null;
     qty: number;
     unitPrice: number;
     lineTotal: number;
   }>;
   statusHistory: Array<{ status: OrderStatus; note: string | null; at: Date }>;
   payment: { status: string; refId: string | null; paidAt: Date | null } | null;
+}
+
+interface LineImages {
+  byVariant: Map<string, string | null>;
+  byProduct: Map<string, string | null>;
+  bySparePart: Map<string, string | null>;
+}
+
+function lineImage(item: OrderDetailRow['items'][number], images: LineImages): string | null {
+  if (item.sparePart) return images.bySparePart.get(item.sparePart.id) ?? null;
+  if (item.bundle) return null; // bundles have no Media owner type of their own
+  const variant = item.variant;
+  if (!variant) return null;
+  return images.byVariant.get(variant.id) ?? images.byProduct.get(variant.product.id) ?? null;
 }
 
 function monthKey(d: Date): string {
@@ -88,6 +110,7 @@ export class StorefrontOrdersService {
   constructor(
     private readonly orders: OrderRepository,
     private readonly users: UserRepository,
+    private readonly media: MediaRepository,
   ) {}
 
   /**
@@ -106,7 +129,7 @@ export class StorefrontOrdersService {
     if (!allowed.includes(given)) {
       throw new NotFoundException('سفارشی با این مشخصات یافت نشد');
     }
-    const detail = this.toDetailView(order);
+    const detail = await this.toDetailView(order);
     const reachedAt = new Map<OrderStatus, Date>();
     for (const h of order.statusHistory) {
       if (!reachedAt.has(h.status)) reachedAt.set(h.status, h.createdAt);
@@ -171,8 +194,9 @@ export class StorefrontOrdersService {
     return this.toDetailView(order);
   }
 
-  private toDetailView(order: OrderDetailRow): OrderDetailView {
+  private async toDetailView(order: OrderDetailRow): Promise<OrderDetailView> {
     const lastPayment = order.payments.at(-1) ?? null;
+    const images = await this.lineImages(order);
     return {
       ...toListItem(order),
       subtotal: order.subtotal,
@@ -189,8 +213,15 @@ export class StorefrontOrdersService {
         postalCode: order.address.postalCode,
       },
       items: order.items.map((i) => ({
+        kind: i.sparePart
+          ? ('spare_part' as const)
+          : i.bundle
+            ? ('bundle' as const)
+            : ('variant' as const),
         productTitle: i.productTitle,
+        productSlug: i.sparePart?.slug ?? i.bundle?.slug ?? i.variant?.product.slug ?? null,
         sku: i.sku,
+        imageUrl: lineImage(i, images),
         qty: i.qty,
         unitPrice: i.unitPrice,
         lineTotal: i.unitPrice * i.qty,
@@ -203,6 +234,30 @@ export class StorefrontOrdersService {
       payment: lastPayment
         ? { status: lastPayment.status, refId: lastPayment.refId, paidAt: lastPayment.paidAt }
         : null,
+    };
+  }
+  /**
+   * One media query per owner type for the whole order — never one per line.
+   * A variant's own gallery wins over the product's, matching the PDP.
+   */
+  private async lineImages(order: OrderDetailRow): Promise<LineImages> {
+    const variantIds = order.items.map((i) => i.variant?.id).filter((v): v is string => !!v);
+    const productIds = order.items
+      .map((i) => i.variant?.product.id)
+      .filter((v): v is string => !!v);
+    const sparePartIds = order.items.map((i) => i.sparePart?.id).filter((v): v is string => !!v);
+
+    const [variantRows, productRows, partRows] = await Promise.all([
+      variantIds.length ? this.media.findByOwners('PRODUCT_VARIANT', variantIds) : [],
+      productIds.length ? this.media.findByOwners('PRODUCT', productIds) : [],
+      sparePartIds.length ? this.media.findByOwners('SPARE_PART', sparePartIds) : [],
+    ]);
+    const group = (rows: typeof variantRows, ids: string[]): Map<string, string | null> =>
+      new Map(ids.map((id) => [id, mainImageUrlOf(rows.filter((r) => r.ownerId === id))]));
+    return {
+      byVariant: group(variantRows, variantIds),
+      byProduct: group(productRows, productIds),
+      bySparePart: group(partRows, sparePartIds),
     };
   }
 }

@@ -7,6 +7,7 @@ export interface NotificationView {
   type: NotificationType;
   title: string;
   body: string;
+  link: string | null;
   createdAt: Date;
   read: boolean;
 }
@@ -22,6 +23,7 @@ export class StorefrontNotificationsService {
       type: r.type,
       title: r.title,
       body: r.body,
+      link: r.link,
       createdAt: r.createdAt,
       read: r.read,
     }));

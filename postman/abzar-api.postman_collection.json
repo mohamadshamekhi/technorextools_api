@@ -77,7 +77,7 @@
 							"mode": "raw",
 							"raw": "{\n  \"mobile\": \"{{mobile}}\",\n  \"referralCode\": null\n}"
 						},
-						"description": "Body: `otpRequestSchema` — mobile (09xxxxxxxxx / +989…), optional referralCode.\nResponse: `{ expiresIn, resendAfter, devCode? }`. `devCode` only when OTP_DEV_ECHO=true."
+						"description": "Body: `otpRequestSchema` — mobile (09xxxxxxxxx / +989…), optional referralCode.\nResponse: `{ expiresIn, resendAfter, devCode? }`. `devCode` only when OTP_DEV_ECHO=true.\nخطاها: **429** سقف ساعتی (`OTP_MAX_PER_HOUR`) یا cooldown ارسال مجدد (`OTP_RESEND_SECONDS`) — پیام فارسی ثانیه‌های باقی‌مانده را دارد. **503** «ارسال پیامک ناموفق بود. لطفاً دوباره تلاش کنید.» وقتی ارائه‌دهنده‌ی پیامک خطا می‌دهد؛ در این حالت چالش حذف می‌شود، پس کاربر cooldown و سهمیه‌ی ساعتی نمی‌سوزاند و می‌تواند بلافاصله دوباره تلاش کند."
 					},
 					"event": [
 						{
@@ -2831,11 +2831,16 @@
 										{
 											"key": "take",
 											"value": "20"
+										},
+										{
+											"key": "status",
+											"value": "reviewing",
+											"disabled": true
 										}
 									]
 								}
 							},
-							"description": "`repairs.manage`. Query: `skip,take,status?`.",
+							"description": "`repairs.manage`. Query: `skip,take,status?` (status \u2208 `received|reviewing|awaiting_customer|awaiting_parts|in_progress|done|delivered|canceled`). Response `{ items: RepairAdminView[], total, skip, take }`; `RepairAdminView = { id, issueDescription, status, statusLabel, statusHistory: [{ status, statusLabel, at, note, by }], technicianNote, estimatedCost, user: { name, mobile }, warranty: { serialNumber, orderId } | null, attachments: [{ id, url, contentType, originalName }], createdAt, updatedAt }`.",
 							"event": [
 								{
 									"listen": "test",
@@ -2843,6 +2848,51 @@
 										"type": "text/javascript",
 										"exec": [
 											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Repair (technician findings)",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/repairs/{{repairId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"repairs",
+										"{{repairId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"technicianNote\": \"برد اصلی سوخته و باید تعویض شود\",\n  \"estimatedCost\": 1850000\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"description": "`repairs.manage`. Body `updateRepairSchema` — `{ technicianNote?: string|null, estimatedCost?: number|null }` (حداقل یک فیلد؛ `estimatedCost` تومان صحیح). وضعیت و `statusHistory` را دست نمی‌زند و اعلان نمی‌سازد. → `RepairAdminView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));"
 										]
 									}
 								}
@@ -2873,10 +2923,10 @@
 								},
 								"body": {
 									"mode": "raw",
-									"raw": "{\n  \"status\": \"in_progress\"\n}"
+									"raw": "{\n  \"status\": \"in_progress\",\n  \"note\": \"قطعه معیوب تعویض شد\"\n}"
 								}
 							},
-							"description": "`repairs.manage`. Body `{ status: received|in_progress|done }`.",
+							"description": "`repairs.manage`. Body `{ status: received|reviewing|awaiting_customer|awaiting_parts|in_progress|done|delivered|canceled, note?: string|null }` (`setRepairStatusSchema`). هر تغییر وضعیت یک ردیف به `statusHistory` اضافه می‌کند (با همان `note`) و برای مشتری یک اعلان `type: repair_status` با `link: /dashboard/repairs/:id` می‌سازد. ارسال دوباره‌ی همان وضعیت بدون `note` no-op است (نه ردیف تاریخچه، نه اعلان). Returns the updated `RepairAdminView` (incl. `statusLabel`, `statusHistory`, `technicianNote`, `estimatedCost`).",
 							"event": [
 								{
 									"listen": "test",
@@ -3402,7 +3452,7 @@
 									"query": []
 								}
 							},
-							"description": "`bundles.manage`.",
+							"description": "`bundles.manage`. → لیست پکیج‌ها با `available` و `packagesInStock` (همان حکم و موجودی‌ای که storefront می‌بیند) و `items[].stockQty` / `items[].isActive`، تا پنل بفهمد پکیج چرا منتشر نشده. `warnings` در خواندن همیشه `[]` است.",
 							"event": [
 								{
 									"listen": "test",
@@ -3433,7 +3483,7 @@
 									"query": []
 								}
 							},
-							"description": "`bundles.manage`.",
+							"description": "`bundles.manage`. → یک پکیج با `available` / `packagesInStock` / `items[].stockQty` / `items[].isActive`؛ ۴۰۴ اگر نبود.",
 							"event": [
 								{
 									"listen": "test",
@@ -3472,7 +3522,7 @@
 									"raw": "{\n  \"title\": \"پکیج دریل + مته\",\n  \"slug\": \"drill-bit-pack\",\n  \"bundlePrice\": 3500000,\n  \"isActive\": true,\n  \"items\": [\n    {\n      \"variantId\": \"{{variantId}}\",\n      \"qty\": 1\n    }\n  ]\n}"
 								}
 							},
-							"description": "`bundles.manage`. Body: title, slug, description?, bundlePrice, isActive, items[{variantId,qty}].",
+							"description": "`bundles.manage`. Body: title, slug, description?, bundlePrice, isActive, items[{variantId,qty}]. عضو غیرفعال یا محصول حذف‌شده → **400** با `details.code = BUNDLE_ITEM_INACTIVE` (+ `variantId`, `sku`, `productTitle`) و پیام فارسی شامل نام و SKU همان عضو. ناموجودی مانع ذخیره نیست: پاسخ `warnings: [{ code: BUNDLE_ITEM_OUT_OF_STOCK, variantId, sku, stockQty, requiredQty }]` می‌دهد. → `{ id, title, slug, description, bundlePrice, isActive, available, packagesInStock, items: [{ variantId, qty, sku, productTitle, stockQty, isActive }], warnings }`.",
 							"event": [
 								{
 									"listen": "test",
@@ -3514,7 +3564,7 @@
 									"raw": "{\n  \"bundlePrice\": 3300000\n}"
 								}
 							},
-							"description": "`bundles.manage`. `items` replaces all.",
+							"description": "`bundles.manage`. `items` replaces all. اگر `items` ارسال شود همان اعتبارسنجی create اجرا می‌شود (**400** `BUNDLE_ITEM_INACTIVE`، یا `warnings` با `BUNDLE_ITEM_OUT_OF_STOCK`)؛ اگر `items` نیاید اعتبارسنجی اعضا انجام نمی‌شود. → همان ویو با `available` / `packagesInStock` / `warnings`.",
 							"event": [
 								{
 									"listen": "test",
@@ -3801,7 +3851,7 @@
 									]
 								}
 							},
-							"description": "`media.manage`. `multipart/form-data` (schema `uploadMediaSchema`): `file` (raw file, ≤ 50 MB) + optional `ownerType` (PRODUCT | PRODUCT_VARIANT | BRAND | ARTICLE | CATEGORY | TICKET_MESSAGE | REPAIR_REQUEST), `ownerId` (24-hex, must come with `ownerType`), `purpose` (GALLERY | COVER | LOGO | DATASHEET | MODEL_3D | ATTACHMENT | OG_IMAGE, default ATTACHMENT), `alt`, `isMain`, `sortOrder`, `folder`. Stores the file server-side, persists a `Media` row, and returns `MediaView` `{ id, url, key, contentType, size, originalName, kind, ownerType, ownerId, purpose, alt, isMain, sortOrder, createdAt }`. `image/jpeg` and `image/png` are re-encoded to WebP before storage (`contentType` `image/webp`, `.webp` key, `size` = encoded bytes); other types are stored unchanged. 400 no file / over 50 MB / owner missing / corrupt image; 503 S3 not configured or upstream PUT fails.",
+							"description": "`media.manage`. `multipart/form-data` (schema `uploadMediaSchema`): `file` (raw file, ≤ 50 MB) + optional `ownerType` (PRODUCT | PRODUCT_VARIANT | SPARE_PART | BUNDLE | BRAND | ARTICLE | CATEGORY | TICKET_MESSAGE | REPAIR_REQUEST), `ownerId` (24-hex, must come with `ownerType`), `purpose` (GALLERY | COVER | LOGO | DATASHEET | MODEL_3D | ATTACHMENT | OG_IMAGE, default ATTACHMENT), `alt`, `isMain`, `sortOrder`, `folder`. Stores the file server-side, persists a `Media` row, and returns `MediaView` `{ id, url, key, contentType, size, originalName, kind, ownerType, ownerId, purpose, alt, isMain, sortOrder, createdAt }`. `image/jpeg` and `image/png` are re-encoded to WebP before storage (`contentType` `image/webp`, `.webp` key, `size` = encoded bytes); other types are stored unchanged. `originalName` نام واقعی فایل با کدگذاری UTF-8 است (نام‌های فارسی سالم برمی‌گردند؛ mojibake رفع شد). 400 no file / over 50 MB / owner missing / corrupt image; 503 S3 not configured or upstream PUT fails.",
 							"event": [
 								{
 									"listen": "test",
@@ -4107,7 +4157,7 @@
 									"query": []
 								}
 							},
-							"description": "Public (`@Public`). → `StorefrontBundleView[]` — پکیج‌های فعال با اقلام (واریانت + محصول + قیمت مؤثر).",
+							"description": "Public (`@Public`). → `StorefrontBundleView[]` — پکیج‌های فعال با اقلام (واریانت + محصول + قیمت مؤثر). `StorefrontBundleView` = `{ id, title, slug, description, bundlePrice, compareAtTotal, savingAmount, imageUrl, packagesInStock, available, items: [{ qty, variant: { id, sku, colorName, stockQty, effectivePrice, imageUrl, isActive, product: { id, title, slug, isActive } } }] }`. `imageUrl` پکیج: تصویر اختصاصی (`Media` با `ownerType=BUNDLE`, `purpose=GALLERY`) و اگر نبود تصویر اولین عضو؛ `variant.imageUrl` اول gallery خود variant و اگر نبود gallery محصول. `compareAtTotal` = مجموع `effectivePrice × qty` اعضا، `savingAmount` = `compareAtTotal - bundlePrice` (هرگز منفی نمی‌شود). `packagesInStock` = تعداد بسته‌ی کامل قابل تأمین (min روی اعضا) و `available` = حکم نهایی سرور برای قابل‌خرید بودن (پکیج فعال + همه‌ی اعضا فعال و محصولشان حذف‌نشده + حداقل یک بسته موجود) — کلاینت لازم نیست خودش محاسبه کند.",
 							"event": [
 								{
 									"listen": "test",
@@ -4139,7 +4189,7 @@
 									"query": []
 								}
 							},
-							"description": "Public (`@Public`). → `StorefrontBundleView` — پکیج فعال بر اساس slug، ۴۰۴ اگر نبود/غیرفعال.",
+							"description": "Public (`@Public`). → `StorefrontBundleView` — پکیج فعال بر اساس slug، ۴۰۴ اگر نبود/غیرفعال. همان شکل لیست (`imageUrl`, `compareAtTotal`, `savingAmount`).",
 							"event": [
 								{
 									"listen": "test",
@@ -4420,7 +4470,7 @@
 									"raw": "{\n  \"bundleId\": \"{{bundleId}}\",\n  \"qty\": 1\n}"
 								}
 							},
-							"description": "`@OptionalAuth`. Body: `addCartBundleSchema` (`bundleId`, `qty`). Adds a package line; availability = min over components of floor(stock/qty). → `CartView` (line `kind:'bundle'`).",
+							"description": "`@OptionalAuth`. Body: `addCartBundleSchema` (`bundleId`, `qty`). Adds a package line; availability = min over components of floor(stock/qty). → `CartView` (line `kind:'bundle'`). خطاها (هر کدام `details.code` ماشین‌خوان دارند): **404** `bundle_not_found` «پکیج مورد نظر یافت نشد» (نبود / `isActive:false` / بدون قلم)؛ **409** `bundle_member_inactive` «یکی از اقلام این پکیج در حال حاضر قابل سفارش نیست» (عضو غیرفعال یا محصولش حذف‌شده)؛ **409** `bundle_out_of_stock` «این پکیج موجود نیست» (+ `details.packagesInStock`). اگر موجودی جزئی باشد خطا نمی‌دهد و `qty` به سقف موجود cap می‌شود.",
 							"event": [
 								{
 									"listen": "test",
@@ -5227,7 +5277,7 @@
 									"query": []
 								}
 							},
-							"description": "Authenticated, owner-scoped. → `OrderDetailView` (items snapshot, address, statusHistory, payment).",
+							"description": "Authenticated, owner-scoped. → `OrderDetailView` (items snapshot, address, statusHistory, payment). هر قلم: `{ kind: variant|bundle|spare_part, productTitle, productSlug, sku, imageUrl, qty, unitPrice, lineTotal }`. `productSlug` و `imageUrl` nullable هستند؛ `imageUrl` تصویر اصلی variant است و اگر نداشت تصویر محصول (باندل همیشه `null`). `kind` مسیر لینک را مشخص می‌کند.",
 							"event": [
 								{
 									"listen": "test",
@@ -5519,6 +5569,107 @@
 					]
 				},
 				{
+					"name": "Notifications",
+					"item": [
+						{
+							"name": "List Notifications",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/notifications",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"notifications"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated، owner-scoped. → `{ id, type, title, body, link, createdAt, read }`[] (newest first). `type` ∈ `order_shipped|order_delivered|order_cancelled|repair_status|discount|system`. `link` یک مسیر داخلی اپ است یا `null` — کلاینت روی کلیک اعلان به آن می‌رود (مثلاً `/dashboard/repairs/:id` برای `repair_status`).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"try { const b = pm.response.json(); if (Array.isArray(b) && b[0]) pm.environment.set('notificationId', b[0].id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Mark Notification Read",
+							"request": {
+								"method": "PATCH",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/notifications/{{notificationId}}/read",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"notifications",
+										"{{notificationId}}",
+										"read"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated، owner-scoped. → 204. اگر اعلان مال کاربر نباشد 404.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"try { const b = pm.response.json(); if (Array.isArray(b) && b[0]) pm.environment.set('notificationId', b[0].id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Mark All Notifications Read",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/storefront/notifications/read-all",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"notifications",
+										"read-all"
+									],
+									"query": []
+								}
+							},
+							"description": "Authenticated. → 204.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"try { const b = pm.response.json(); if (Array.isArray(b) && b[0]) pm.environment.set('notificationId', b[0].id); } catch (e) {}"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
 					"name": "Repairs",
 					"item": [
 						{
@@ -5547,7 +5698,7 @@
 									]
 								}
 							},
-							"description": "Authenticated, owner-scoped.",
+							"description": "Authenticated, owner-scoped. Repair list \u2192 `{ items: `{ id, issueDescription, status, statusLabel, warrantySerial, attachments[], createdAt, updatedAt }`[], total, skip, take }`.",
 							"event": [
 								{
 									"listen": "test",
@@ -5586,7 +5737,7 @@
 									"raw": "{\n  \"issueDescription\": \"دستگاه روشن نمی‌شود و صدای غیرعادی دارد\",\n  \"warrantySerial\": \"{{warrantySerial}}\"\n}"
 								}
 							},
-							"description": "Authenticated. Body `{ issueDescription, warrantySerial? }`. → repair view.",
+							"description": "Authenticated. Body `{ issueDescription, warrantySerial?, mediaIds? }`. \u2192 repair view `{ id, issueDescription, status, statusLabel, statusHistory: [{ status, statusLabel, at, note, by }], technicianNote, estimatedCost, warrantySerial, attachments[], createdAt, updatedAt }` \u2014 `statusHistory` \u0627\u0632 \u0642\u062f\u06cc\u0645 \u0628\u0647 \u062c\u062f\u06cc\u062f.",
 							"event": [
 								{
 									"listen": "test",
@@ -5595,6 +5746,53 @@
 										"exec": [
 											"pm.test('ok', () => pm.response.code===201);",
 											"pm.environment.set('repairId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Decide Repair Quote",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/storefront/repairs/{{repairId}}/decision",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"storefront",
+										"repairs",
+										"{{repairId}}",
+										"decision"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"decision\": \"approve\",\n  \"note\": \"هزینه را تأیید می‌کنم\"\n}",
+									"options": {
+										"raw": {
+											"language": "json"
+										}
+									}
+								}
+							},
+							"description": "Authenticated، owner-scoped، throttle ۱۰/دقیقه. Body `{ decision: 'approve'|'reject', note?: string|null (≤500) }`. تأیید یا رد `estimatedCost` توسط مشتری — فقط وقتی `status === awaiting_customer` و `estimatedCost !== null`. `approve` → `in_progress`، `reject` → `canceled`؛ یک ردیف با `by: 'customer'` و همان `note` به `statusHistory` اضافه می‌شود. → همان repair view به‌روزشده. خطاها: **404** اگر درخواست وجود نداشته باشد یا مال کاربر نباشد (۴۰۳ نمی‌دهیم تا وجود رکورد لو نرود)، **409** اگر وضعیت `awaiting_customer` نباشد / هزینه‌ی تخمینی ثبت نشده باشد / وضعیت هم‌زمان عوض شده باشد (compare-and-set).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201]));",
+											"try { const b = pm.response.json(); pm.test('moved out of awaiting_customer', () => pm.expect(b.status).to.be.oneOf(['in_progress','canceled'])); } catch (e) {}"
 										]
 									}
 								}
@@ -5618,7 +5816,7 @@
 									"query": []
 								}
 							},
-							"description": "Authenticated, owner-scoped.",
+							"description": "Authenticated, owner-scoped. Repair detail \u2192 `{ id, issueDescription, status, statusLabel, warrantySerial, attachments[], createdAt, updatedAt }`.",
 							"event": [
 								{
 									"listen": "test",

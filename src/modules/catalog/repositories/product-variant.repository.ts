@@ -29,6 +29,15 @@ export type VariantForCart = Prisma.ProductVariantGetPayload<{
  * All Prisma access for the `product_variants` collection. The `price_tiers`
  * child rows are managed here as part of the variant aggregate.
  */
+/** Minimal variant shape used when validating bundle members. */
+export interface BundleMemberVariant {
+  id: string;
+  sku: string;
+  stockQty: number;
+  isActive: boolean;
+  product: { title: string; isActive: boolean; deletedAt: Date | null };
+}
+
 @Injectable()
 export class ProductVariantRepository {
   constructor(private readonly prisma: PrismaService) {}
@@ -96,6 +105,24 @@ export class ProductVariantRepository {
     return this.prisma.productVariant.findMany({
       where: { productId: { in: productIds }, isActive: true },
       orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Batched lookup with the orderability fields a bundle's validation needs —
+   * one query instead of a `findById` per member.
+   */
+  findManyByIdsWithStatus(ids: string[]): Promise<BundleMemberVariant[]> {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.productVariant.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        sku: true,
+        stockQty: true,
+        isActive: true,
+        product: { select: { title: true, isActive: true, deletedAt: true } },
+      },
     });
   }
 

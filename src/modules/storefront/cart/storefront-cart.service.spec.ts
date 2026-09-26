@@ -135,20 +135,18 @@ describe('StorefrontCartService', () => {
     const { service, carts } = make({
       sparePartFindById: jest.fn().mockResolvedValue(part),
       findActiveByUserId: jest.fn().mockResolvedValue(cartRow()),
-      findActiveById: jest
-        .fn()
-        .mockResolvedValue(
-          cartRow([
-            {
-              id: 'i9',
-              variantId: null,
-              bundleId: null,
-              sparePartId: 's1',
-              qty: 2,
-              sparePart: part,
-            },
-          ]),
-        ),
+      findActiveById: jest.fn().mockResolvedValue(
+        cartRow([
+          {
+            id: 'i9',
+            variantId: null,
+            bundleId: null,
+            sparePartId: 's1',
+            qty: 2,
+            sparePart: part,
+          },
+        ]),
+      ),
     });
     const view = await service.addSparePart({ user: USER }, 's1', 10);
     expect(carts.addSparePartItem).toHaveBeenCalledWith('c1', 's1', 2);
@@ -212,5 +210,73 @@ describe('StorefrontCartService', () => {
     await service.mergeGuestCartIntoUser('user1', 'tok_abcdefgh');
     expect(carts.addItem).toHaveBeenCalledWith('uc1', 'v1', 2);
     expect(carts.setStatus).toHaveBeenCalledWith('guest1', 'merged');
+  });
+});
+
+describe('StorefrontCartService.addBundle', () => {
+  const pack = (itemsOver: Array<Record<string, unknown>>) =>
+    ({
+      id: 'bn1',
+      title: 'پک دریل',
+      slug: 'drill-pack',
+      bundlePrice: 900,
+      isActive: true,
+      items: itemsOver,
+    }) as never;
+
+  it('404s for a missing or inactive pack', async () => {
+    const { service } = make({ bundleFindById: jest.fn().mockResolvedValue(null) });
+    await expect(service.addBundle({ user: USER }, 'bn1', 1)).rejects.toMatchObject({
+      status: 404,
+      response: { message: 'پکیج مورد نظر یافت نشد', details: { code: 'bundle_not_found' } },
+    });
+  });
+
+  it('409s when a member variant is no longer active', async () => {
+    const { service } = make({
+      bundleFindById: jest.fn().mockResolvedValue(
+        pack([
+          {
+            qty: 1,
+            variant: {
+              stockQty: 10,
+              isActive: false,
+              product: { isActive: true, deletedAt: null },
+            },
+          },
+        ]),
+      ),
+    });
+    await expect(service.addBundle({ user: USER }, 'bn1', 1)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        message: 'یکی از اقلام این پکیج در حال حاضر قابل سفارش نیست',
+        details: { code: 'bundle_member_inactive' },
+      },
+    });
+  });
+
+  it('409s when a member is out of stock', async () => {
+    const { service } = make({
+      bundleFindById: jest.fn().mockResolvedValue(
+        pack([
+          {
+            qty: 2,
+            variant: {
+              stockQty: 1,
+              isActive: true,
+              product: { isActive: true, deletedAt: null },
+            },
+          },
+        ]),
+      ),
+    });
+    await expect(service.addBundle({ user: USER }, 'bn1', 1)).rejects.toMatchObject({
+      status: 409,
+      response: {
+        message: 'این پکیج موجود نیست',
+        details: { code: 'bundle_out_of_stock', packagesInStock: 0 },
+      },
+    });
   });
 });

@@ -1,4 +1,9 @@
-import { HttpException, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import {
+  HttpException,
+  ServiceUnavailableException,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { OtpService } from './otp.service';
 import type { OtpChallengeRepository } from './repositories/otp-challenge.repository';
@@ -23,11 +28,14 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
     findActive: overrides.findActive ?? jest.fn().mockResolvedValue(null),
     findLatestUnconsumed: overrides.findLatestUnconsumed ?? jest.fn().mockResolvedValue(null),
     invalidateActive: overrides.invalidateActive ?? jest.fn().mockResolvedValue(undefined),
-    create: overrides.create ?? jest.fn().mockResolvedValue({}),
+    create: overrides.create ?? jest.fn().mockResolvedValue({ id: 'ch1' }),
+    delete: overrides.delete ?? jest.fn().mockResolvedValue(undefined),
     incrementAttempts: overrides.incrementAttempts ?? jest.fn().mockResolvedValue({}),
     consume: overrides.consume ?? jest.fn().mockResolvedValue({}),
   } as unknown as OtpChallengeRepository;
-  const sms = { sendOtp: jest.fn().mockResolvedValue(undefined) } as unknown as SmsService;
+  const sms = {
+    sendOtp: overrides.sendOtp ?? jest.fn().mockResolvedValue(undefined),
+  } as unknown as SmsService;
   return {
     service: new OtpService(challenges, sms, config as never),
     challenges,
@@ -102,5 +110,49 @@ describe('OtpService', () => {
       referralCode: 'ABCD1234',
     });
     expect(consume).toHaveBeenCalledWith('c1');
+  });
+});
+
+describe('OtpService.request — SMS failure', () => {
+  const failing = () =>
+    make({
+      sendOtp: jest.fn().mockRejectedValue(new Error('MelliPayamak responded 400: bad bodyId')),
+    });
+
+  it('answers 503 with a Persian message instead of leaking a 500', async () => {
+    const { service } = failing();
+    await expect(service.request('+989120000000')).rejects.toMatchObject({
+      status: 503,
+      message: 'ارسال پیامک ناموفق بود. لطفاً دوباره تلاش کنید.',
+    });
+  });
+
+  it('is a ServiceUnavailableException, so the filter keeps the provider detail out', async () => {
+    const { service } = failing();
+    await expect(service.request('+989120000000')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it("deletes the challenge so the caller's cooldown and hourly quota aren't burned", async () => {
+    const { service, challenges } = failing();
+    await expect(service.request('+989120000000')).rejects.toBeTruthy();
+    expect(challenges.delete).toHaveBeenCalledWith('ch1');
+  });
+
+  it('still fails cleanly when the rollback itself fails', async () => {
+    const { service } = make({
+      sendOtp: jest.fn().mockRejectedValue(new Error('boom')),
+      delete: jest.fn().mockRejectedValue(new Error('db down')),
+    });
+    await expect(service.request('+989120000000')).rejects.toBeInstanceOf(
+      ServiceUnavailableException,
+    );
+  });
+
+  it('keeps the challenge when the send succeeds', async () => {
+    const { service, challenges } = make();
+    await service.request('+989120000000');
+    expect(challenges.delete).not.toHaveBeenCalled();
   });
 });
