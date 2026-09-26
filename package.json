@@ -4,7 +4,7 @@
   "private": true,
   "description": "Abzar platform backend — business logic, persistence, and authentication",
   "engines": {
-    "node": ">=20.11.0"
+    "node": ">=22.13.0"
   },
   "packageManager": "pnpm@11.6.0",
   "scripts": {

@@ -4,6 +4,8 @@
 #   bash deploy/deploy.sh          # pull, build, restart
 #   bash deploy/deploy.sh --seed   # also run `prisma db push` + seed (first deploy,
 #                                  #  or after a schema change)
+#
+# SKIP_GIT_PULL=1 skips the `git pull` (CI already checked out the exact commit).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -14,7 +16,7 @@ COMPOSE=(docker compose -f docker-compose.prod.yml --env-file .env.production)
   exit 1
 }
 
-if [ -d .git ]; then
+if [ -d .git ] && [ "${SKIP_GIT_PULL:-}" != "1" ]; then
   echo "==> git pull"
   git pull --ff-only
 fi

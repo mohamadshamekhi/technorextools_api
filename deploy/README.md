@@ -11,7 +11,7 @@ browser ──https──> nginx (host, certbot)
 
 ## 0. Before you start
 
-- A domain (e.g. `api.example.com`) with an **A record already pointing at the server IP** —
+- A domain (e.g. `api.technorextools.com`) with an **A record already pointing at the server IP** —
   certbot fails otherwise.
 - SSH access as `root` with your public key in `/root/.ssh/authorized_keys`.
 - Credentials at hand: Melipayamak (API key + pattern ids), ZarinPal merchant id, and the
@@ -23,7 +23,7 @@ browser ──https──> nginx (host, certbot)
 ssh root@<server-ip>
 apt-get update -y && apt-get install -y git
 git clone <repo-url> /opt/abzar-api && cd /opt/abzar-api
-bash deploy/setup-server.sh api.example.com you@example.com deploy
+bash deploy/setup-server.sh api.technorextools.com <your-email> deploy
 ```
 
 Installs Docker + compose plugin, nginx, certbot (+ auto-renew timer), ufw (SSH/HTTP/HTTPS
@@ -54,16 +54,16 @@ plain `bash deploy/deploy.sh` for a code-only redeploy.
 | `JWT_SECRET` | ≥ 32 chars, from `openssl rand -hex 32` |
 | `CORS_ORIGIN` | the storefront + backoffice origins, comma-separated, **https** |
 | `OTP_DEV_ECHO` | `false` — the process refuses to boot otherwise in production |
-| `PAYMENT_CALLBACK_BASE_URL` | `https://api.example.com` — ZarinPal returns the browser to `${this}/api/v1/payment/callback` |
-| `PAYMENT_RESULT_REDIRECT_URL` | the storefront's payment-result page |
-| `ZARINPAL_SANDBOX` | `false` in production |
+| `PAYMENT_CALLBACK_BASE_URL` | `https://api.technorextools.com` — the gateway returns the browser to `${this}/api/v1/payment/callback` |
+| `PAYMENT_RESULT_REDIRECT_URL` | `https://www.technorextools.com/checkout/result` |
+| `PAYMENT_PROVIDER` | `fake` for now — **it marks every order paid without charging anyone**. Flip to `zarinpal` (+ `ZARINPAL_MERCHANT_ID`, `ZARINPAL_SANDBOX=false`) before real customers check out |
 | `SEED_SUPERADMIN_MOBILE` | the mobile that gets the superadmin role on seed |
 
 ## 3. Verify
 
 ```bash
-curl -fsS https://api.example.com/health
-curl -fsS https://api.example.com/api/v1/storefront/catalog/products
+curl -fsS https://api.technorextools.com/health
+curl -fsS https://api.technorextools.com/api/v1/storefront/catalog/products
 ```
 
 Then log in as the superadmin: `POST /api/v1/auth/otp/request` → the SMS arrives on
@@ -97,3 +97,30 @@ Backups — add to the `deploy` user's crontab:
   nginx's `X-Forwarded-For`. If you ever put Cloudflare or a second proxy in front, raise
   that number in `src/main.ts` to match the hop count.
 - File uploads are ≤ 50 MB; nginx is set to `client_max_body_size 55m` to match.
+
+## 5. Automated deploy (GitLab CI)
+
+The pipeline (`.gitlab-ci.yml`) runs `verify` + `e2e` on every MR and on `main`, and exposes a
+**manual** `deploy` job on `main`. To enable it once:
+
+```bash
+# on the server, as the deploy user
+ssh-keygen -t ed25519 -f ~/.ssh/gitlab-ci -N ''      # or generate locally
+cat ~/.ssh/gitlab-ci.pub >> ~/.ssh/authorized_keys
+ssh-keyscan api.technorextools.com                   # → SSH_KNOWN_HOSTS
+```
+
+Then in GitLab → Settings → CI/CD → Variables (mask/protect them):
+
+| Variable | Type | Value |
+| --- | --- | --- |
+| `SSH_PRIVATE_KEY` | File | the private key generated above |
+| `SSH_KNOWN_HOSTS` | File | the `ssh-keyscan` output |
+| `DEPLOY_HOST` | Var | `api.technorextools.com` |
+| `DEPLOY_USER` | Var | `deploy` |
+| `DEPLOY_PATH` | Var | `/home/deploy/abzar-api` |
+| `DEPLOY_SEED` | Var | set to `1` only for a deploy that must run `prisma db push` + seed |
+
+The job checks the server out at the pipeline's exact commit (`git reset --hard $CI_COMMIT_SHA`)
+and runs `SKIP_GIT_PULL=1 bash deploy/deploy.sh`, which builds, restarts and waits for
+`/health` — a failed health check fails the pipeline and prints the last 50 log lines.

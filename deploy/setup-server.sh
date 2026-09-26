@@ -62,7 +62,7 @@ if ! swapon --show | grep -q '/swapfile'; then
 fi
 
 log "Nginx vhost for $DOMAIN"
-sed "s/api\.example\.com/$DOMAIN/g" "$(dirname "$0")/nginx/abzar-api.conf" \
+sed -E "s/(server_name )[^;]+;/\1$DOMAIN;/" "$(dirname "$0")/nginx/abzar-api.conf" \
   >/etc/nginx/sites-available/abzar-api
 ln -sf /etc/nginx/sites-available/abzar-api /etc/nginx/sites-enabled/abzar-api
 rm -f /etc/nginx/sites-enabled/default
