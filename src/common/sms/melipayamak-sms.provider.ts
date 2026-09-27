@@ -1,20 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { renderFallback, SmsService, type SmsTemplate } from './sms.service';
 
-// Legacy REST: username + password, form-encoded, variables joined by ';'.
 const BASE_SERVICE_URL = 'https://rest.payamak-panel.com/api/SendSMS/BaseServiceNumber';
-// Newer console API: apikey in the path, JSON body with an args array.
-const SHARED_SEND_URL = (apiKey: string) =>
+const SHARED_SHARED_URL = (apiKey: string) =>
   `https://console.melipayamak.com/api/send/shared/${apiKey}`;
 
 export interface MelipayamakOptions {
-  /** Preferred. When set, the console.melipayamak.com shared-line API is used. */
   apiKey?: string;
   username?: string;
   password?: string;
-  /** Numeric id of the approved OTP service pattern. */
   otpPatternId: string;
-  /** bodyId per transactional template; unset → that notification is logged, not sent. */
   templatePatternIds: Partial<Record<SmsTemplate, string>>;
 }
 
@@ -26,19 +21,10 @@ interface BaseServiceResponse {
 
 interface SharedSendResponse {
   recId?: number;
-  status?: string;
+  status?: string | number;
+  [key: string]: any;
 }
 
-/**
- * MelliPayamak (ملی‌پیامک) provider — sends only through approved service
- * patterns (منوی توسعه‌دهندگان → وبسرویس خدماتی). OTP and each transactional
- * notification map to a `bodyId`; the ordered variables fill the pattern slots.
- *
- * Auth: an `apiKey` (console API, JSON) is preferred; `username`+`password`
- * (legacy REST, form-encoded) is the fallback.
- *
- * Free-text `send()` is unsupported here and logs a warning.
- */
 @Injectable()
 export class MelipayamakSmsProvider extends SmsService {
   private readonly logger = new Logger('SMS');
@@ -76,14 +62,31 @@ export class MelipayamakSmsProvider extends SmsService {
   }
 
   private async sendViaApiKey(mobile: string, bodyId: string, vars: string[]): Promise<void> {
-    const res = await this.post(SHARED_SEND_URL(this.options.apiKey as string), {
+    const payload = { bodyId: Number(bodyId), to: mobile, args: vars };
+    const url = SHARED_SHARED_URL(this.options.apiKey as string);
+    
+    this.logger.log(`Sending MelliPayamak pattern via API key. Payload: ${JSON.stringify(payload)}`);
+    
+    const res = await this.post(url, {
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bodyId: Number(bodyId), to: mobile, args: vars }),
+      body: JSON.stringify(payload),
     });
-    const data = (await res.json()) as SharedSendResponse;
-    if (!data.recId || data.recId <= 0) {
+    
+    const rawText = await res.text();
+    this.logger.log(`MelliPayamak raw response: ${rawText}`);
+
+    let data: SharedSendResponse;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error(`MelliPayamak invalid JSON response: ${rawText}`);
+    }
+
+    // Check status or recId based on console API specifications
+    const isSuccess = data.recId && Number(data.recId) > 0;
+    if (!isSuccess) {
       throw new Error(
-        `MelliPayamak send rejected: ${data.status ?? 'unknown'}${describe(data.status)}`,
+        `MelliPayamak send rejected: status=${String(data.status ?? 'unknown')}${describe(String(data.status))}`,
       );
     }
   }
@@ -101,7 +104,6 @@ export class MelipayamakSmsProvider extends SmsService {
       body,
     });
     const data = (await res.json()) as BaseServiceResponse;
-    // RetStatus === 1 / StrRetStatus === "OK" is success; else the code is in `Value`.
     if (data.RetStatus !== 1) {
       throw new Error(
         `MelliPayamak send rejected: code=${data.Value ?? 'null'} status=${data.StrRetStatus ?? 'unknown'}${describe(data.Value)}`,
@@ -119,8 +121,6 @@ export class MelipayamakSmsProvider extends SmsService {
       );
     }
     if (!res.ok) {
-      // The status alone says nothing — MelliPayamak puts the reason in the body
-      // (bad bodyId, unapproved pattern, wrong arg count …).
       const body = await res.text().catch(() => '');
       throw new Error(
         `MelliPayamak responded ${res.status}${body ? `: ${body.slice(0, 300)}` : ''}`,
@@ -130,7 +130,6 @@ export class MelipayamakSmsProvider extends SmsService {
   }
 }
 
-/** A few documented error codes / messages, appended to logs for readability. */
 const MELIPAYAMAK_ERRORS: Record<string, string> = {
   '0': 'نام کاربری یا رمز عبور نادرست',
   '2': 'اعتبار کافی نیست',
