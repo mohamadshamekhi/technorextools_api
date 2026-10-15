@@ -62,21 +62,17 @@ non-superadmin role that manages catalog/content. The client PUT may send any `C
 
 - **Node 22** — `pnpm@11` refuses to run on Node 20 (`node:sqlite` is 22-only), so the
   Dockerfile base, `.nvmrc` and `engines.node` are all pinned to 22.13+.
-- **CI/CD (GitLab — the real pipeline, `origin` is gitlab.com)** — `.gitlab-ci.yml`:
-  `verify` runs `typecheck / lint / format:check / build / test`; `e2e` boots a `mongo:7.0`
-  service whose entrypoint starts `mongod --replSet rs0` and self-initiates the single-node
-  set (member host `mongo:27017`, hence `FF_NETWORK_PER_BUILD: true`), then
-  `pnpm prisma:push && pnpm test:e2e` with `RUN_E2E=1`. Both run on every MR and on `main`;
-  the pnpm store is cached on `pnpm-lock.yaml`.
-  `deploy` is a **manual** job on `main` (`environment: production`): it SSHes to the server,
-  `git reset --hard $CI_COMMIT_SHA` and runs `SKIP_GIT_PULL=1 bash deploy/deploy.sh`
-  (`DEPLOY_SEED=1` adds `--seed`). Required CI/CD variables: `SSH_PRIVATE_KEY` (File),
-  `SSH_KNOWN_HOSTS` (File, from `ssh-keyscan <host>`), `DEPLOY_HOST`, `DEPLOY_USER`,
-  `DEPLOY_PATH`, optional `DEPLOY_SEED`. Protect/mask them and restrict to protected branches.
-- **CI (GitHub mirror, optional)** — `.github/workflows/ci.yml` keeps the equivalent
-  `verify` + `e2e` jobs (`supercharge/mongodb-github-action` for the replica set). It has no
-  deploy job; it was previously sitting in a stray top-level `workflows/` folder where GitHub
-  never picked it up.
+- **CI/CD (GitHub Actions, the real pipeline)** — `.github/workflows/ci.yml`:
+  `verify` runs `typecheck / lint / format:check / build / test`; `e2e` boots a single-node
+  `mongo:7.0` replica set via `supercharge/mongodb-github-action` (service containers can't
+  pass `--replSet`), then `pnpm prisma:push && pnpm test:e2e` with `RUN_E2E=1`. Both run on
+  every push/PR. `deploy` runs only after `verify` + `e2e` pass **and** the push is to `main`
+  (`environment: production`): it SSHes to the server via `appleboy/ssh-action` and runs
+  `bash deploy/deploy.sh` (set the `DEPLOY_SEED` repo **variable** to `1` to add `--seed`).
+  Required secrets, preferably scoped to the `production` environment: `DEPLOY_SSH_HOST`,
+  `DEPLOY_SSH_USER`, `DEPLOY_SSH_KEY` (the whole private key), `DEPLOY_PATH`. See
+  `deploy/README.md` §5 for setup. There is no longer a GitLab pipeline — `.gitlab-ci.yml`
+  was removed when deploy moved here.
 - **Local DB** — `docker compose up -d` (`pnpm db:up`) runs the official `mongo:7.0` image with
   `--replSet rs0`; the healthcheck self-initiates the replica set on first start. (The old
   `bitnami/mongodb` image was removed from Docker Hub.) `pnpm db:down` tears it down.

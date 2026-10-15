@@ -23,7 +23,7 @@ browser ──https──> nginx (host, certbot)
 ssh root@<server-ip>
 apt-get update -y && apt-get install -y git
 git clone <repo-url> /opt/abzar-api && cd /opt/abzar-api
-bash deploy/setup-server.sh api.technorextools.com <your-email> deploy
+bash deploy/setup-server.sh api.technorextools.com mohamadshamekhi79@gmail.com deploy
 ```
 
 Installs Docker + compose plugin, nginx, certbot (+ auto-renew timer), ufw (SSH/HTTP/HTTPS
@@ -98,29 +98,32 @@ Backups — add to the `deploy` user's crontab:
   that number in `src/main.ts` to match the hop count.
 - File uploads are ≤ 50 MB; nginx is set to `client_max_body_size 55m` to match.
 
-## 5. Automated deploy (GitLab CI)
+## 5. Automated deploy (GitHub Actions)
 
-The pipeline (`.gitlab-ci.yml`) runs `verify` + `e2e` on every MR and on `main`, and exposes a
-**manual** `deploy` job on `main`. To enable it once:
+The workflow (`.github/workflows/ci.yml`) runs `verify` + `e2e` on every push/PR; `deploy`
+only runs after both pass **and** the push is to `main`. To enable it once:
 
 ```bash
 # on the server, as the deploy user
-ssh-keygen -t ed25519 -f ~/.ssh/gitlab-ci -N ''      # or generate locally
-cat ~/.ssh/gitlab-ci.pub >> ~/.ssh/authorized_keys
-ssh-keyscan api.technorextools.com                   # → SSH_KNOWN_HOSTS
+ssh-keygen -t ed25519 -f ~/.ssh/github_deploy -N "" -C "github-actions-deploy"
+cat ~/.ssh/github_deploy.pub >> ~/.ssh/authorized_keys
+chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
+ssh -i ~/.ssh/github_deploy deploy@api.technorextools.com "echo CONNECTED_OK"   # test
 ```
 
-Then in GitLab → Settings → CI/CD → Variables (mask/protect them):
+Then in the GitHub repo → Settings → Secrets and variables → Actions, preferably under the
+`production` **Environment** (matching the workflow's `environment: production` on the
+`deploy` job — a different environment name there means the secrets are never visible to the
+job and you get a silent "missing server host" failure):
 
-| Variable | Type | Value |
-| --- | --- | --- |
-| `SSH_PRIVATE_KEY` | File | the private key generated above |
-| `SSH_KNOWN_HOSTS` | File | the `ssh-keyscan` output |
-| `DEPLOY_HOST` | Var | `api.technorextools.com` |
-| `DEPLOY_USER` | Var | `deploy` |
-| `DEPLOY_PATH` | Var | `/home/deploy/abzar-api` |
-| `DEPLOY_SEED` | Var | set to `1` only for a deploy that must run `prisma db push` + seed |
+| Secret/Variable | Value |
+| --- | --- |
+| `DEPLOY_SSH_HOST` | `api.technorextools.com` (or the server IP) |
+| `DEPLOY_SSH_USER` | `deploy` |
+| `DEPLOY_SSH_KEY` | the whole private key generated above (BEGIN…END) |
+| `DEPLOY_PATH` | `/home/deploy/abzar-api` |
+| `DEPLOY_SEED` (Variable, optional) | set to `1` only for a deploy that must run `prisma db push` + seed |
 
-The job checks the server out at the pipeline's exact commit (`git reset --hard $CI_COMMIT_SHA`)
-and runs `SKIP_GIT_PULL=1 bash deploy/deploy.sh`, which builds, restarts and waits for
-`/health` — a failed health check fails the pipeline and prints the last 50 log lines.
+The job SSHes in via `appleboy/ssh-action` and runs `bash deploy/deploy.sh`, which
+`git pull --ff-only`s, builds, restarts and waits for `/health` — a failed health check fails
+the job and prints the last 50 log lines.

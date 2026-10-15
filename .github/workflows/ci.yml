@@ -53,3 +53,18 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm prisma:push
       - run: pnpm test:e2e
+
+  deploy:
+    needs: [verify, e2e]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_SSH_HOST }}
+          username: ${{ secrets.DEPLOY_SSH_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            bash deploy/deploy.sh ${{ vars.DEPLOY_SEED == '1' && '--seed' || '' }}
