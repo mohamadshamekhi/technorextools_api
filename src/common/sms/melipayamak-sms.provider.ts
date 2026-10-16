@@ -22,7 +22,7 @@ interface BaseServiceResponse {
 interface SharedSendResponse {
   recId?: number;
   status?: string | number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 @Injectable()
@@ -76,9 +76,8 @@ export class MelipayamakSmsProvider extends SmsService {
     const apiKey = this.options.apiKey as string;
     const url = SHARED_SHARED_URL(apiKey);
     
-    this.logger.log(`Sending MelliPayamak pattern via API key. URL: ${url}`);
-    this.logger.log(`Payload: ${JSON.stringify(payload)}`);
-    
+    this.logger.log(`Sending MelliPayamak pattern via API key. URL: ${url}, bodyId: ${bodyId}`);
+
     const res = await this.post(url, {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -89,7 +88,7 @@ export class MelipayamakSmsProvider extends SmsService {
 
     let data: SharedSendResponse;
     try {
-      data = JSON.parse(rawText);
+      data = JSON.parse(rawText) as SharedSendResponse;
     } catch {
       throw new Error(`MelliPayamak invalid JSON response: ${rawText}`);
     }
