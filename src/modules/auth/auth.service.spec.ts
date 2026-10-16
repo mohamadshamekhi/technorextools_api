@@ -7,14 +7,12 @@ function make(over: Partial<Record<string, jest.Mock>> = {}) {
   const users = {
     findByIdWithRole:
       over.findByIdWithRole ??
-      jest
-        .fn()
-        .mockResolvedValue({
-          id: 'u1',
-          isActive: true,
-          email: 'old@x.com',
-          role: { id: 'r', slug: 'customer', title: 'c' },
-        }),
+      jest.fn().mockResolvedValue({
+        id: 'u1',
+        isActive: true,
+        email: 'old@x.com',
+        role: { id: 'r', slug: 'customer', title: 'c' },
+      }),
     findByEmail: over.findByEmail ?? jest.fn().mockResolvedValue(null),
     update:
       over.update ??

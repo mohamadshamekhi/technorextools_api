@@ -33,10 +33,13 @@ export class MelipayamakSmsProvider extends SmsService {
     super();
     // لاگ بررسی اولیه برای اطمینان از خوانده شدن توکن
     if (this.options.apiKey) {
-      const masked = this.options.apiKey.length > 8 
-        ? `${this.options.apiKey.slice(0, 4)}...${this.options.apiKey.slice(-4)}` 
-        : '***';
-      this.logger.log(`[Melipayamak Init] API Key loaded successfully. Length: ${this.options.apiKey.length}, Masked: ${masked}`);
+      const masked =
+        this.options.apiKey.length > 8
+          ? `${this.options.apiKey.slice(0, 4)}...${this.options.apiKey.slice(-4)}`
+          : '***';
+      this.logger.log(
+        `[Melipayamak Init] API Key loaded successfully. Length: ${this.options.apiKey.length}, Masked: ${masked}`,
+      );
     } else {
       this.logger.warn(`[Melipayamak Init] API Key is EMPTY! Will fallback to BaseService.`);
     }
@@ -65,7 +68,9 @@ export class MelipayamakSmsProvider extends SmsService {
   }
 
   private sendPattern(mobile: string, bodyId: string, vars: string[]): Promise<void> {
-    this.logger.log(`[Melipayamak Dispatch] Using mode: ${this.options.apiKey ? 'API Key (Console)' : 'BaseService (Username/Password)'}`);
+    this.logger.log(
+      `[Melipayamak Dispatch] Using mode: ${this.options.apiKey ? 'API Key (Console)' : 'BaseService (Username/Password)'}`,
+    );
     return this.options.apiKey
       ? this.sendViaApiKey(mobile, bodyId, vars)
       : this.sendViaBaseService(mobile, bodyId, vars);
@@ -75,23 +80,15 @@ export class MelipayamakSmsProvider extends SmsService {
     const payload = { bodyId: Number(bodyId), to: mobile, args: vars };
     const apiKey = this.options.apiKey as string;
     const url = SHARED_SHARED_URL(apiKey);
-    
+
     this.logger.log(`Sending MelliPayamak pattern via API key. URL: ${url}, bodyId: ${bodyId}`);
 
     const res = await this.post(url, {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    
-    const rawText = await res.text();
-    this.logger.log(`MelliPayamak raw response: ${rawText}`);
 
-    let data: SharedSendResponse;
-    try {
-      data = JSON.parse(rawText) as SharedSendResponse;
-    } catch {
-      throw new Error(`MelliPayamak invalid JSON response: ${rawText}`);
-    }
+    const data = (await res.json()) as SharedSendResponse;
 
     // Check status or recId based on console API specifications
     const isSuccess = data.recId && Number(data.recId) > 0;
