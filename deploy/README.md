@@ -111,10 +111,10 @@ chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
 ssh -i ~/.ssh/github_deploy deploy@api.technorextools.com "echo CONNECTED_OK"   # test
 ```
 
-Then in the GitHub repo → Settings → Secrets and variables → Actions, preferably under the
-`production` **Environment** (matching the workflow's `environment: production` on the
-`deploy` job — a different environment name there means the secrets are never visible to the
-job and you get a silent "missing server host" failure):
+Then in the GitHub repo → Settings → Secrets and variables → Actions, under the `Technorex`
+**Environment** (must match the workflow's `environment: Technorex` on the `deploy` job
+exactly — a different environment name there means the secrets are never visible to the job
+and you get a silent "missing server host" failure):
 
 | Secret/Variable | Value |
 | --- | --- |

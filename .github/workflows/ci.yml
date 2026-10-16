@@ -58,7 +58,7 @@ jobs:
     needs: [verify, e2e]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
-    environment: production
+    environment: Technorex
     steps:
       - uses: appleboy/ssh-action@v1.2.0
         with:
