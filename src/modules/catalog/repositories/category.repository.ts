@@ -2,6 +2,9 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma, Category } from '@prisma/client';
 import { PrismaService } from '../../../prisma/prisma.service';
 
+/** Soft-deleted products keep their `categoryId` but must not count as "in use". */
+const liveProducts = { where: { deletedAt: null } } satisfies Prisma.Category$productsArgs;
+
 export type CategoryWithParent = Category & { parent: Category | null };
 export type CategoryWithCounts = Category & {
   parent: Category | null;
@@ -26,7 +29,7 @@ export class CategoryRepository {
       where: { id },
       include: {
         parent: true,
-        _count: { select: { children: true, products: true, attributeGroups: true } },
+        _count: { select: { children: true, products: liveProducts, attributeGroups: true } },
       },
     });
   }
@@ -68,7 +71,7 @@ export class CategoryRepository {
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         include: {
           parent: true,
-          _count: { select: { children: true, products: true, attributeGroups: true } },
+          _count: { select: { children: true, products: liveProducts, attributeGroups: true } },
         },
       }),
       this.prisma.category.count({ where }),

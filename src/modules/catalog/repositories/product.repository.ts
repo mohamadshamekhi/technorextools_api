@@ -71,8 +71,12 @@ export class ProductRepository {
     return this.prisma.product.findUnique({ where: { id } });
   }
 
+  /** Live products only — a soft-deleted one may point at a category that no longer exists. */
   findByIdFull(id: string): Promise<ProductFullRow | null> {
-    return this.prisma.product.findUnique({ where: { id }, include: productFullInclude });
+    return this.prisma.product.findFirst({
+      where: { id, deletedAt: null },
+      include: productFullInclude,
+    });
   }
 
   findBySlug(slug: string): Promise<Product | null> {
