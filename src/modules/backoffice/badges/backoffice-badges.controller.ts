@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { CurrentUser } from '../../../common/decorators/current-user.decorator';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 import type { AuthenticatedUser } from '../../auth/token.types';
-import { BackofficeBadgesService, SEEN_SECTIONS, type SeenSection } from './backoffice-badges.service';
+import {
+  BackofficeBadgesService,
+  SEEN_SECTIONS,
+  type SeenSection,
+} from './backoffice-badges.service';
 
 const seenSectionSchema = z.enum(SEEN_SECTIONS, { message: 'بخش نامعتبر است' });
 
