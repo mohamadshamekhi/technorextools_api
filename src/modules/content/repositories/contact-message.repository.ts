@@ -39,4 +39,9 @@ export class ContactMessageRepository {
       this.prisma.contactMessage.count({ where }),
     ]);
   }
+
+  /** Messages nobody has handled yet — drives the backoffice sidebar badge. */
+  countNew(): Promise<number> {
+    return this.prisma.contactMessage.count({ where: { status: 'new' } });
+  }
 }

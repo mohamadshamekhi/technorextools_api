@@ -1138,3 +1138,15 @@ model AdminActionLog {
   @@index([entityType, entityId])
   @@map("admin_action_logs")
 }
+
+/// When an admin last opened a backoffice section that has no per-row "handled" state
+/// (e.g. newsletter). Rows newer than `seenAt` count toward that admin's sidebar badge.
+model AdminSeenMarker {
+  id      String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId  String   @db.ObjectId
+  section String
+  seenAt  DateTime
+
+  @@unique([userId, section])
+  @@map("admin_seen_markers")
+}

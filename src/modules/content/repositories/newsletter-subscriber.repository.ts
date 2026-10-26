@@ -35,4 +35,11 @@ export class NewsletterSubscriberRepository {
       this.prisma.newsletterSubscriber.count({ where }),
     ]);
   }
+
+  /** Active subscribers who joined after `since` (all of them when null). */
+  countActiveSince(since: Date | null): Promise<number> {
+    return this.prisma.newsletterSubscriber.count({
+      where: { isActive: true, ...(since ? { createdAt: { gt: since } } : {}) },
+    });
+  }
 }

@@ -102,4 +102,16 @@ export class RepairRequestRepository {
   ): Promise<RepairRequestRow> {
     return this.prisma.repairRequest.update({ where: { id }, data, include: withRefs });
   }
+
+  /** Repair requests no technician has picked up yet — drives the backoffice sidebar badge. */
+  countReceived(): Promise<number> {
+    return this.prisma.repairRequest.count({ where: { status: 'received' } });
+  }
+
+  /** Warranty claims (repairs linked to a warranty) not picked up yet — warranties badge. */
+  countReceivedUnderWarranty(): Promise<number> {
+    return this.prisma.repairRequest.count({
+      where: { status: 'received', warrantyId: { not: null } },
+    });
+  }
 }

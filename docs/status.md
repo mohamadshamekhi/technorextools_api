@@ -164,6 +164,9 @@ job releases lapsed reservations.
   `PATCH backoffice/orders/:orderNumber/status`.
 - **contact & newsletter** — `ContactMessage` + `NewsletterSubscriber` with public throttled POSTs
   and backoffice lists (`contact.view`, `newsletter.view`).
+- **sidebar badges** — `GET backoffice/badges` (per-permission pending counts for tickets,
+  comments, repairs, warranty claims, product questions, contact messages, newsletter) + `POST backoffice/badges/:section/seen`
+  (`AdminSeenMarker`, per-admin seen-at for sections without a handled state).
 - New permission codes: `product-questions.moderate`, `contact.view`, `newsletter.view` →
   re-run `pnpm prisma:seed`.
 - **Not built (deferred):** a CMS surface for the marketing copy of the About/FAQ/testimonial pages —

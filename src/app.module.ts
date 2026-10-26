@@ -42,6 +42,7 @@ import { BackofficeShippingModule } from './modules/backoffice/shipping/backoffi
 import { BackofficePaymentMethodsModule } from './modules/backoffice/payment-methods/backoffice-payment-methods.module';
 import { BackofficeProductQuestionsModule } from './modules/backoffice/product-questions/backoffice-product-questions.module';
 import { BackofficeInboxModule } from './modules/backoffice/inbox/backoffice-inbox.module';
+import { BackofficeBadgesModule } from './modules/backoffice/badges/backoffice-badges.module';
 import { StorefrontContactModule } from './modules/storefront/contact/storefront-contact.module';
 import { BackofficeDiscountsModule } from './modules/backoffice/discounts/backoffice-discounts.module';
 import { BackofficeCommentsModule } from './modules/backoffice/comments/backoffice-comments.module';
@@ -133,6 +134,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     BackofficeDiscountsModule,
     BackofficeProductQuestionsModule,
     BackofficeInboxModule,
+    BackofficeBadgesModule,
     BackofficeCommentsModule,
     BackofficeTicketsModule,
     BackofficeWarrantiesModule,

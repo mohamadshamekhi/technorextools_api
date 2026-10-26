@@ -72,4 +72,9 @@ export class CommentRepository {
       this.prisma.comment.count({ where }),
     ]);
   }
+
+  /** Reviews awaiting moderation — drives the backoffice sidebar badge. */
+  countPending(): Promise<number> {
+    return this.prisma.comment.count({ where: { status: CommentStatus.pending } });
+  }
 }

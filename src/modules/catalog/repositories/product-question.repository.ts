@@ -73,4 +73,9 @@ export class ProductQuestionRepository {
       this.prisma.productQuestion.count({ where }),
     ]);
   }
+
+  /** Questions awaiting an answer/moderation — drives the backoffice sidebar badge. */
+  countPending(): Promise<number> {
+    return this.prisma.productQuestion.count({ where: { status: ProductQuestionStatus.pending } });
+  }
 }

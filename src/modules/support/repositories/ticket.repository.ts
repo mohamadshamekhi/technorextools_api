@@ -95,4 +95,9 @@ export class TicketRepository {
   setStatus(id: string, status: TicketStatus): Promise<TicketWithMessages> {
     return this.prisma.ticket.update({ where: { id }, data: { status }, include: withMessages });
   }
+
+  /** Tickets waiting on a staff reply — drives the backoffice sidebar badge. */
+  countAwaitingStaff(): Promise<number> {
+    return this.prisma.ticket.count({ where: { status: TicketStatus.open } });
+  }
 }
