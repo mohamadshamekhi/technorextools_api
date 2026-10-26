@@ -265,6 +265,55 @@
 			"description": "Admin-panel surface (abzar/backoffice). Paths under /api/v1/backoffice/*. Each route is gated by a permission code; a superadmin bypasses all checks.",
 			"item": [
 				{
+					"name": "Sidebar Badges",
+					"item": [
+						{
+							"name": "Badge counts",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/backoffice/badges",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"v1",
+										"backoffice",
+										"badges"
+									]
+								},
+								"description": "Any authenticated admin. Returns `{ tickets?, comments?, repairs?, warranties?, productQuestions?, contactMessages?, newsletter? }` — counts of items still waiting on an admin (open tickets, pending comments/questions, `received` repairs (warranties = only those linked to a warranty), `new` contact messages, active newsletter subscribers since this admin last opened the newsletter page). Keys the caller lacks the section permission for are omitted."
+							},
+							"response": []
+						},
+						{
+							"name": "Mark section seen",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/backoffice/badges/newsletter/seen",
+									"host": [
+										"{{baseUrl}}"
+									],
+									"path": [
+										"api",
+										"v1",
+										"backoffice",
+										"badges",
+										"newsletter",
+										"seen"
+									]
+								},
+								"description": "Resets this admin's badge for a seen-tracked section. `section` ∈ `newsletter`. 204 No Content; 400 for an unknown section."
+							},
+							"response": []
+						}
+					]
+				},
+				{
 					"name": "Access (RBAC)",
 					"item": [
 						{
