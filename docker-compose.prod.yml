@@ -41,6 +41,8 @@ services:
     build:
       context: .
       target: runtime
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
     restart: unless-stopped
     env_file: .env.production
     ports:
@@ -72,6 +74,8 @@ services:
     build:
       context: .
       target: tooling
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
     profiles: ['tools']
     env_file: .env.production
     networks: [abzar]

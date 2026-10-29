@@ -1,11 +1,25 @@
 FROM node:22-slim AS base
+# npm registry for pnpm itself (corepack) and for every package. Point it at a
+# mirror when the build host can't reach registry.npmjs.org (NPM_REGISTRY in
+# .env.production, passed through docker-compose.prod.yml).
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+# Keep in sync with "packageManager" in package.json — corepack refuses a mismatch
+# and would download the other version on every build.
+ARG PNPM_VERSION=11.6.0
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
+ENV COREPACK_HOME=/corepack
+ENV COREPACK_NPM_REGISTRY=$NPM_REGISTRY
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+ENV npm_config_registry=$NPM_REGISTRY
 # openssl + ca-certificates are required by Prisma's query engine.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable
+# Download pnpm once into this cached layer instead of on every `pnpm install`;
+# world-readable so the `node` user can run it too.
+RUN corepack install --global pnpm@$PNPM_VERSION && chmod -R a+rX $COREPACK_HOME
 WORKDIR /app
 
 # ---- full install (dev + prod) for the build ----

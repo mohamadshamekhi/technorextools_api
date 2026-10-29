@@ -1,23 +1,26 @@
 # Local MongoDB as a single-node replica set (Prisma needs a replica set for
-# transactions). Brings up on mongodb://localhost:27017/abzar?replicaSet=rs0
+# transactions). Brings up on mongodb://localhost:27019/abzar?replicaSet=rs0
+# (port 27019 so it doesn't clash with other local Mongo instances)
 #
 #   docker compose up -d
 #
 # Uses the official `mongo` image; the healthcheck self-initiates the replica
 # set on first start (the old bitnami/mongodb image was pulled from Docker Hub).
+name: technorextools
+
 services:
   mongo:
     image: mongo:7.0
     ports:
-      - '27017:27017'
-    command: ['--replSet', 'rs0', '--bind_ip_all']
+      - '27019:27019'
+    command: ['--replSet', 'rs0', '--bind_ip_all', '--port', '27019']
     volumes:
       - mongo-data:/data/db
     healthcheck:
       test: >-
-        mongosh --quiet --eval "
+        mongosh --quiet --port 27019 --eval "
           try { rs.status().ok }
-          catch { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }) }
+          catch { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27019' }] }) }
         "
       interval: 5s
       timeout: 10s

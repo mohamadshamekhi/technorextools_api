@@ -79,7 +79,10 @@ non-superadmin role that manages catalog/content. The client PUT may send any `C
 - **Docker** — multi-stage `Dockerfile` (`deps → build → tooling → prod-deps → runtime`), runs
   as the `node` user, `node dist/main` on `:4000`. `.dockerignore` keeps the context lean. The
   `tooling` stage keeps the dev deps so `prisma db push` / `prisma db seed` (ts-node) can run
-  as a one-shot container — never deploy it as the server.
+  as a one-shot container — never deploy it as the server. pnpm is baked into the `base` layer
+  (`ARG PNPM_VERSION`, keep it equal to `packageManager`), and `ARG NPM_REGISTRY` points both
+  corepack and pnpm at a mirror — set `NPM_REGISTRY` in `.env.production` when the server
+  can't reach registry.npmjs.org.
 - **e2e tests** self-skip unless `RUN_E2E=1`; they need a reachable `DATABASE_URL`.
 - **Production server** — `deploy/` holds the whole recipe: `docker-compose.prod.yml` (api +
   single-node Mongo replica set + Redis on an internal network; only `127.0.0.1:4000` is
