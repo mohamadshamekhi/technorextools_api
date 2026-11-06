@@ -135,6 +135,17 @@ export class ProductRepository {
     return this.prisma.product.count({ where: { brandId } });
   }
 
+  /** Live hero products, optionally ignoring one (the product being edited). */
+  countFeatured(excludeId?: string): Promise<number> {
+    return this.prisma.product.count({
+      where: {
+        isFeatured: true,
+        deletedAt: null,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+    });
+  }
+
   /** Existence check for a set of ids regardless of status — used by related-product validation. */
   countByIds(ids: string[]): Promise<number> {
     if (ids.length === 0) return Promise.resolve(0);

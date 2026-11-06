@@ -32,7 +32,7 @@ const order = {
     receiverMobile: '09120000000',
     province: 'تهران',
     city: 'تهران',
-    fullAddress: 'خیابان ولیعصر',
+    fullAddress: 'خیابان امام خمینی',
     postalCode: '1234567890',
   },
   shippingMethod: null,

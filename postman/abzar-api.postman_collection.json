@@ -2717,7 +2717,7 @@
 								},
 								"body": {
 									"mode": "raw",
-									"raw": "{\n  \"body\": \"سلام، گارانتی ۱۸ ماهه است.\"\n}"
+									"raw": "{\n  \"body\": \"سلام، گارانتی ۶ ماهه است.\"\n}"
 								}
 							},
 							"description": "`tickets.handle`. Body `{ body, attachmentUrl? }` — status → answered.",

@@ -110,6 +110,9 @@ export interface ProductDetail {
   createdAt: string;
 }
 
+/** The storefront hero carousel shows at most this many products. */
+export const MAX_FEATURED_PRODUCTS = 4;
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -179,6 +182,9 @@ export class ProductsService {
     if (input.brandId) {
       await this.ensureBrandExists(input.brandId);
     }
+    if (input.isFeatured) {
+      await this.ensureFeaturedSlot();
+    }
     const { brandId, categoryId, ...rest } = input;
     const product = await this.products.create({
       ...rest,
@@ -201,6 +207,9 @@ export class ProductsService {
     }
     if (input.brandId && input.brandId !== product.brandId) {
       await this.ensureBrandExists(input.brandId);
+    }
+    if (input.isFeatured && !product.isFeatured) {
+      await this.ensureFeaturedSlot(id);
     }
     const { brandId, categoryId, ...rest } = input;
     await this.products.update(id, {
@@ -471,6 +480,14 @@ export class ProductsService {
   private async ensureCategoryExists(id: string): Promise<void> {
     if (!(await this.categories.findById(id))) {
       throw new BadRequestException('دسته‌بندی انتخاب‌شده وجود ندارد');
+    }
+  }
+
+  private async ensureFeaturedSlot(excludeId?: string): Promise<void> {
+    if ((await this.products.countFeatured(excludeId)) >= MAX_FEATURED_PRODUCTS) {
+      throw new BadRequestException(
+        `حداکثر ${MAX_FEATURED_PRODUCTS} محصول می‌تواند در هیرو نمایش داده شود`,
+      );
     }
   }
 

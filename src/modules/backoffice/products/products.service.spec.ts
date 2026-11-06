@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { Product } from '@prisma/client';
-import { ProductsService } from './products.service';
+import { MAX_FEATURED_PRODUCTS, ProductsService } from './products.service';
 import type { AttributeGroupRepository } from '../../catalog/repositories/attribute-group.repository';
 import type { BrandRepository } from '../../catalog/repositories/brand.repository';
 import type { CategoryRepository } from '../../catalog/repositories/category.repository';
@@ -39,6 +39,7 @@ function make(overrides: Partial<Record<string, jest.Mock>> = {}) {
     update: overrides.update ?? jest.fn().mockResolvedValue(productRow()),
     softDelete: overrides.softDelete ?? jest.fn().mockResolvedValue(productRow()),
     countByBrandId: jest.fn().mockResolvedValue(0),
+    countFeatured: overrides.countFeatured ?? jest.fn().mockResolvedValue(0),
     countByIds: overrides.countByIds ?? jest.fn().mockResolvedValue(0),
     paginate: jest.fn().mockResolvedValue({ items: [], total: 0 }),
     replaceAttributeValues: jest.fn().mockResolvedValue(undefined),
@@ -126,6 +127,25 @@ describe('ProductsService', () => {
     await expect(service.create({ ...createInput, brandId: 'b1' })).rejects.toBeInstanceOf(
       BadRequestException,
     );
+  });
+
+  it('rejects featuring a product once the hero already has the maximum', async () => {
+    const countFeatured = jest.fn().mockResolvedValue(MAX_FEATURED_PRODUCTS);
+    const { service } = make({ countFeatured });
+    await expect(service.update('p1', { isFeatured: true })).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(countFeatured).toHaveBeenCalledWith('p1');
+  });
+
+  it('lets an already-featured product be saved when the hero is full', async () => {
+    const countFeatured = jest.fn().mockResolvedValue(MAX_FEATURED_PRODUCTS);
+    const { service } = make({
+      countFeatured,
+      findById: jest.fn().mockResolvedValue(productRow({ isFeatured: true })),
+    });
+    await service.update('p1', { isFeatured: true }).catch(() => undefined);
+    expect(countFeatured).not.toHaveBeenCalled();
   });
 
   it('sends a Prisma-shaped create payload — relations connected, no scalar FK keys', async () => {
