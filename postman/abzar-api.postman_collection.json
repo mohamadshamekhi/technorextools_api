@@ -1656,7 +1656,7 @@
 								"method": "GET",
 								"header": [],
 								"url": {
-									"raw": "{{apiBase}}/backoffice/inventory/variants?skip=0&take=20&productId={{productId}}&search&lowStock",
+									"raw": "{{apiBase}}/backoffice/inventory/variants?skip=0&take=20&productId={{productId}}&categoryId={{categoryId}}&brandId={{brandId}}&search&lowStock",
 									"host": [
 										"{{apiBase}}"
 									],
@@ -1679,6 +1679,14 @@
 											"value": "{{productId}}"
 										},
 										{
+											"key": "categoryId",
+											"value": "{{categoryId}}"
+										},
+										{
+											"key": "brandId",
+											"value": "{{brandId}}"
+										},
+										{
 											"key": "search",
 											"value": "",
 											"disabled": true
@@ -1691,7 +1699,7 @@
 									]
 								}
 							},
-							"description": "Perm: `inventory.manage`. Query: `listVariantsQuerySchema` (`lowStock=true` = موجودی ≤ ۵). → `{ items: InventoryVariantView[], total, skip, take }`.",
+							"description": "Perm: `inventory.manage`. Query: `listVariantsQuerySchema` (`lowStock=true` = موجودی ≤ ۵؛ `categoryId`/`brandId` فیلتر بر اساس محصول والد). → `{ items: InventoryVariantView[], total, skip, take }`.",
 							"event": [
 								{
 									"listen": "test",

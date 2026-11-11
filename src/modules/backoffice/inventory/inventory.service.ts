@@ -32,6 +32,8 @@ export class InventoryService {
   ): Promise<{ items: InventoryVariantView[]; total: number; skip: number; take: number }> {
     const and: Prisma.ProductVariantWhereInput[] = [];
     if (query.productId) and.push({ productId: query.productId });
+    if (query.categoryId) and.push({ product: { is: { categoryId: query.categoryId } } });
+    if (query.brandId) and.push({ product: { is: { brandId: query.brandId } } });
     if (query.search) {
       const contains = { contains: query.search, mode: 'insensitive' as const };
       and.push({ OR: [{ sku: contains }, { product: { is: { title: contains } } }] });

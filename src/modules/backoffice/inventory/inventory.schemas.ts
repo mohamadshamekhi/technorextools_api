@@ -7,6 +7,8 @@ export const listVariantsQuerySchema = z.object({
   skip: z.coerce.number().int().min(0).default(0),
   take: z.coerce.number().int().min(1).max(100).default(20),
   productId: objectIdSchema.optional(),
+  categoryId: objectIdSchema.optional(),
+  brandId: objectIdSchema.optional(),
   search: z.string().trim().min(1).max(64).optional(), // matches sku
   lowStock: z
     .enum(['true', 'false'])
