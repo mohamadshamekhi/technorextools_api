@@ -35,6 +35,8 @@ interface ResolvedLine extends DiscountLine {
   productTitle: string;
   sku: string | null;
   weightGrams: number | null;
+  /** Purchase cost per unit snapshot (accounting COGS); null when unknown. */
+  unitCost: number | null;
   /** Bundle only: the component variants and how many of each per package. */
   components: Array<{ variantId: string; qtyPerPackage: number }>;
 }
@@ -195,6 +197,7 @@ export class StorefrontCheckoutService {
         sparePartId: l.sparePartId,
         qty: l.qty,
         unitPrice: l.unitPrice,
+        unitCost: l.unitCost,
         productTitle: l.productTitle,
         sku: l.sku,
       })),
@@ -341,6 +344,7 @@ export class StorefrontCheckoutService {
           categoryId: '__spare_part__',
           qty: item.qty,
           unitPrice: part.price,
+          unitCost: part.costPrice ?? null,
           productTitle: part.title,
           sku: part.partNumber,
           weightGrams: part.weightGrams,
@@ -372,6 +376,10 @@ export class StorefrontCheckoutService {
           categoryId: '__bundle__',
           qty: item.qty,
           unitPrice: bundle.bundlePrice,
+          // A pack's cost is known only when every member's is.
+          unitCost: bundle.items.every((bi) => bi.variant.costPrice !== null)
+            ? bundle.items.reduce((c, bi) => c + (bi.variant.costPrice ?? 0) * bi.qty, 0)
+            : null,
           productTitle: bundle.title,
           sku: null,
           weightGrams: bundle.items.some((bi) => bi.variant.weightGrams === null)
@@ -407,6 +415,7 @@ export class StorefrontCheckoutService {
         categoryId: variant.product.categoryId,
         qty: item.qty,
         unitPrice,
+        unitCost: variant.costPrice ?? null,
         productTitle: variant.product.title,
         sku: variant.sku,
         weightGrams: variant.weightGrams,

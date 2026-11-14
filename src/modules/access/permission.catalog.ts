@@ -61,6 +61,18 @@ export const PERMISSIONS = [
   // reports
   { code: 'reports.view', group: 'reports', description: 'مشاهده گزارش‌های مالی و فروش' },
 
+  // accounting
+  {
+    code: 'accounting.view',
+    group: 'accounting',
+    description: 'مشاهده حسابداری، حساب‌ها و گزارش سود و زیان',
+  },
+  {
+    code: 'accounting.manage',
+    group: 'accounting',
+    description: 'ثبت و ویرایش درآمد، هزینه، حساب‌ها و دسته‌ها',
+  },
+
   // access control
   { code: 'users.view', group: 'access', description: 'مشاهده کاربران' },
   { code: 'users.manage', group: 'access', description: 'ویرایش کاربر و تخصیص نقش' },
@@ -88,8 +100,14 @@ export const SYSTEM_ROLES: Array<{
   {
     slug: 'accountant',
     title: 'حسابدار',
-    description: 'فقط مشاهده بخش مالی و سفارش‌ها',
-    permissions: ['orders.view', 'payments.view', 'reports.view'],
+    description: 'مشاهده سفارش‌ها و مدیریت بخش مالی و حسابداری',
+    permissions: [
+      'orders.view',
+      'payments.view',
+      'reports.view',
+      'accounting.view',
+      'accounting.manage',
+    ],
   },
   {
     slug: 'customer',

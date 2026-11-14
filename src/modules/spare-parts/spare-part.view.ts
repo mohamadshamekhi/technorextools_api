@@ -10,6 +10,8 @@ export interface SparePartView {
   shortDesc: string | null;
   description: string | null;
   price: number;
+  /** Admin views only — purchase cost per unit (Toman). Never sent to the storefront. */
+  costPrice?: number | null;
   stockQty: number;
   weightGrams: number | null;
   isActive: boolean;
@@ -32,6 +34,7 @@ export function toSparePartView(
     shortDesc: row.shortDesc,
     description: row.description,
     price: row.price,
+    ...(publicOnly ? {} : { costPrice: row.costPrice }),
     stockQty: row.stockQty,
     weightGrams: row.weightGrams,
     isActive: row.isActive,

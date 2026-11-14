@@ -81,6 +81,19 @@ content (articles, branches, seo-meta, public settings) · shipping methods · w
   users. No endpoint creates a notification directly.
 - **admin audit** (`admin-log/` @Global) — global interceptor logs mutating `/backoffice/*` requests;
   `backoffice/reports/admin-logs` viewer. `backoffice/reports` also has `sales` and `inventory`.
+- **accounting** (`accounting/` @Global core: `FinanceAccount` / `FinanceCategory` / `FinanceTransaction`
+  + `AccountingPostingService`; `backoffice/accounting`, `accounting.view` / `accounting.manage`) — mid-level
+  **single-entry** books, no double-entry ledger / tax. Accounts (cash / bank / gateway) with a computed
+  balance; income/expense categories (`affectsProfit:false` = cash moves but the P&L ignores it, e.g. the
+  system `inventory_purchase`); manual income/expense/transfer entries (soft delete). **Automatic postings:**
+  `OrdersService.markPaid` → one `order_sale` income (`sourceKey sale:<orderId>`) on the account whose
+  `salesPaymentMethod` matches the order (auto-created "صندوق نقدی" / "درگاه پرداخت آنلاین" on first use);
+  admin cancel of a paid order → one `order_refund` expense mirroring it. Idempotent on the unique
+  `sourceKey`; a failed posting never fails the payment — `POST backoffice/accounting/sync-orders` backfills.
+  **COGS:** `ProductVariant.costPrice` / `SparePart.costPrice` (admin-only) are snapshotted at checkout into
+  `OrderItem.unitCost` (a bundle sums its members; unknown → null, reported as `linesWithoutCost`).
+  `GET reports/profit-loss` = net sales − COGS + other income − expenses, plus a Jalali day/month cash-flow
+  series; transactions and the P&L export as CSV (UTF-8 BOM, Jalali dates).
 - **sweep** (`sweep/` — in-process `setInterval`, no external scheduler) — every 60s: expires stale
   `pending_payment` orders (releases reservation, refunds points, `abandoned`); logs abandoned carts
   (`abandoned_cart_hours`) + reminder SMS.

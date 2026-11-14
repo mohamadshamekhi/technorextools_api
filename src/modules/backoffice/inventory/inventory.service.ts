@@ -17,6 +17,8 @@ export interface InventoryVariantView {
   colorName: string | null;
   stockQty: number;
   priceOverride: number | null;
+  /** Purchase cost per unit (Toman) — admin-only, feeds accounting COGS. */
+  costPrice: number | null;
   weightGrams: number | null;
   isActive: boolean;
   priceTiers: Array<{ minQty: number; unitPrice: number }>;
@@ -60,9 +62,10 @@ export class InventoryService {
     if (!variant) {
       throw new NotFoundException('واریانت یافت نشد');
     }
-    const { priceOverride, weightGrams, ...rest } = input;
+    const { priceOverride, weightGrams, costPrice, ...rest } = input;
     const updated = await this.variants.update(id, {
       ...rest,
+      ...(costPrice !== undefined ? { costPrice: costPrice ?? null } : {}),
       ...(priceOverride !== undefined ? { priceOverride: priceOverride ?? null } : {}),
       ...(weightGrams !== undefined ? { weightGrams: weightGrams ?? null } : {}),
     });
@@ -107,6 +110,7 @@ function toView(variant: VariantRow): InventoryVariantView {
     colorName: variant.colorName,
     stockQty: variant.stockQty,
     priceOverride: variant.priceOverride,
+    costPrice: variant.costPrice,
     weightGrams: variant.weightGrams,
     isActive: variant.isActive,
     priceTiers: variant.priceTiers ?? [],

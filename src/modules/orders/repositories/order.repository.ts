@@ -38,6 +38,7 @@ export interface NewOrderInput {
     sparePartId: string | null;
     qty: number;
     unitPrice: number;
+    unitCost: number | null;
     productTitle: string;
     sku: string | null;
   }>;
@@ -57,6 +58,53 @@ export class OrderRepository {
 
   findById(id: string): Promise<OrderDetailRow | null> {
     return this.prisma.order.findUnique({ where: { id }, include: detailInclude });
+  }
+
+  /** Cost snapshot of every line of these orders — accounting COGS. */
+  findItemCosts(
+    orderIds: string[],
+  ): Promise<Array<{ orderId: string; qty: number; unitCost: number | null }>> {
+    if (orderIds.length === 0) return Promise.resolve([]);
+    return this.prisma.orderItem.findMany({
+      where: { orderId: { in: orderIds } },
+      select: { orderId: true, qty: true, unitCost: true },
+    });
+  }
+
+  /**
+   * Accounting backfill page: orders that were (or still are) paid, keyset-paginated by id.
+   * Carries only the `paid` / `cancelled` history rows — when the money came in / went back.
+   */
+  findPaidOrCancelledPage(afterId: string | null, take: number) {
+    return this.prisma.order.findMany({
+      where: {
+        status: {
+          in: [
+            OrderStatus.paid,
+            OrderStatus.processing,
+            OrderStatus.shipped,
+            OrderStatus.delivered,
+            OrderStatus.cancelled,
+          ],
+        },
+        ...(afterId ? { id: { gt: afterId } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take,
+      select: {
+        id: true,
+        orderNumber: true,
+        total: true,
+        paymentMethod: true,
+        status: true,
+        placedAt: true,
+        statusHistory: {
+          where: { status: { in: [OrderStatus.paid, OrderStatus.cancelled] } },
+          select: { status: true, createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
   }
 
   countByUser(userId: string): Promise<number> {

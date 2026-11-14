@@ -412,6 +412,7 @@ model ProductVariant {
   colorName     String?
   stockQty      Int      @default(0)
   priceOverride Int? // Toman
+  costPrice     Int? // Toman — purchase cost per unit (accounting COGS); admin-only, never on storefront
   weightGrams   Int? // shipping: used by `by_weight` shipping methods; null → method falls back to flat
   isActive      Boolean  @default(true)
   createdAt     DateTime @default(now())
@@ -720,6 +721,9 @@ model OrderItem {
   sparePart    SparePart? @relation(fields: [sparePartId], references: [id])
   qty          Int
   unitPrice    Int
+  /// Purchase cost per unit at checkout (snapshot of variant/part `costPrice`; a bundle sums
+  /// its members). Null = cost unknown → excluded from COGS and counted as "missing cost".
+  unitCost     Int?
   productTitle String // snapshot
   sku          String? // snapshot
 
@@ -806,6 +810,7 @@ model SparePart {
   shortDesc   String?
   description String? // rich text
   price       Int // Toman, integer
+  costPrice   Int? // Toman — purchase cost per unit (accounting COGS); admin-only
   stockQty    Int       @default(0)
   weightGrams Int? // shipping: used by `by_weight` methods
   isActive    Boolean   @default(true)
@@ -1149,4 +1154,94 @@ model AdminSeenMarker {
 
   @@unique([userId, section])
   @@map("admin_seen_markers")
+}
+
+// ─── Accounting (mid-level, single-entry) ───────────────────────────────────
+
+enum FinanceAccountKind {
+  cash
+  bank
+  gateway
+}
+
+enum FinanceTxnType {
+  income
+  expense
+  transfer
+}
+
+enum FinanceTxnSource {
+  manual
+  order_sale
+  order_refund
+}
+
+/// A cashbox / bank account / payment gateway whose balance is
+/// `openingBalance + Σ income − Σ expense ± transfers` (non-deleted transactions).
+model FinanceAccount {
+  id             String             @id @default(auto()) @map("_id") @db.ObjectId
+  title          String
+  kind           FinanceAccountKind
+  /// Free text, e.g. card / sheba number shown to admins only.
+  accountNumber  String?
+  openingBalance Int                @default(0) // Toman
+  /// Paid orders with this payment method post their sales income here. At most one
+  /// account per code (enforced in the service — a nullable @unique breaks on Mongo).
+  salesPaymentMethod PaymentMethodKind?
+  isActive       Boolean            @default(true)
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@map("finance_accounts")
+}
+
+/// Income / expense category. `systemKey` marks the categories the API posts to itself
+/// (`sales`, `sales_refund`, `inventory_purchase`) — they can't be deleted or change type.
+model FinanceCategory {
+  id           String         @id @default(auto()) @map("_id") @db.ObjectId
+  title        String
+  type         FinanceTxnType // income | expense (never transfer)
+  systemKey    String?
+  /// false → the money moves (balances) but the P&L ignores it — e.g. buying stock,
+  /// whose cost reaches the P&L later as COGS when the goods are sold.
+  affectsProfit Boolean       @default(true)
+  isActive     Boolean        @default(true)
+  sortOrder    Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([type])
+  @@map("finance_categories")
+}
+
+model FinanceTransaction {
+  id              String           @id @default(auto()) @map("_id") @db.ObjectId
+  type            FinanceTxnType
+  source          FinanceTxnSource @default(manual)
+  amount          Int // Toman, always > 0
+  accountId       String           @db.ObjectId
+  /// Transfer only: destination account.
+  toAccountId     String?          @db.ObjectId
+  /// Null only for transfers.
+  categoryId      String?          @db.ObjectId
+  occurredAt      DateTime
+  description     String?
+  reference       String? // receipt / cheque / tracking number
+  orderId         String?          @db.ObjectId
+  orderNumber     String?
+  /// Idempotency key — `manual:<uuid>`, `sale:<orderId>`, `refund:<orderId>`. Always set
+  /// (a nullable unique index would collide on Mongo), so automatic postings land once.
+  sourceKey       String           @unique
+  createdByUserId String?          @db.ObjectId
+  deletedAt       DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([occurredAt])
+  @@index([accountId])
+  @@index([toAccountId])
+  @@index([categoryId])
+  @@index([orderId])
+  @@map("finance_transactions")
 }

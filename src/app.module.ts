@@ -32,6 +32,8 @@ import { DiscountsModule } from './modules/discounts/discounts.module';
 import { LoyaltyModule } from './modules/loyalty/loyalty.module';
 import { ReferralModule } from './modules/referral/referral.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { AccountingModule } from './modules/accounting/accounting.module';
+import { BackofficeAccountingModule } from './modules/backoffice/accounting/backoffice-accounting.module';
 import { SupportModule } from './modules/support/support.module';
 import { AdminLogModule } from './modules/admin-log/admin-log.module';
 import { SweepModule } from './modules/sweep/sweep.module';
@@ -95,6 +97,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     LoyaltyModule,
     ReferralModule,
     OrdersModule,
+    AccountingModule,
     SupportModule,
     AdminLogModule,
     SweepModule,
@@ -145,6 +148,7 @@ import { StorefrontRepairsModule } from './modules/storefront/repairs/storefront
     StorefrontSparePartsModule,
     BackofficeLoyaltyModule,
     BackofficeReportsModule,
+    BackofficeAccountingModule,
     MediaModule,
 
     // Public-site surface (abzar/storefront) — /api/v1/storefront/*

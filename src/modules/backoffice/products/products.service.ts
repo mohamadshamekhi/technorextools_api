@@ -69,6 +69,8 @@ export interface ProductVariantView {
   colorName: string | null;
   stockQty: number;
   priceOverride: number | null;
+  /** Purchase cost per unit (Toman) — admin-only, feeds accounting COGS. */
+  costPrice: number | null;
   weightGrams: number | null;
   isActive: boolean;
 }
@@ -435,6 +437,7 @@ export class ProductsService {
       colorName: input.colorName ?? undefined,
       stockQty: input.stockQty,
       priceOverride: input.priceOverride,
+      costPrice: input.costPrice,
       weightGrams: input.weightGrams,
       isActive: input.isActive,
       product: { connect: { id: productId } },
@@ -454,10 +457,11 @@ export class ProductsService {
     if (input.sku && input.sku !== variant.sku) {
       await this.ensureSkuFree(input.sku);
     }
-    const { colorName, weightGrams, ...rest } = input;
+    const { colorName, weightGrams, costPrice, ...rest } = input;
     const updated = await this.variants.update(variantId, {
       ...rest,
       ...(colorName !== undefined ? { colorName: colorName ?? null } : {}),
+      ...(costPrice !== undefined ? { costPrice: costPrice ?? null } : {}),
       ...(weightGrams !== undefined ? { weightGrams: weightGrams ?? null } : {}),
     });
     return toVariantView(updated);
@@ -537,6 +541,7 @@ function toVariantView(variant: ProductVariant): ProductVariantView {
     colorName: variant.colorName,
     stockQty: variant.stockQty,
     priceOverride: variant.priceOverride,
+    costPrice: variant.costPrice,
     weightGrams: variant.weightGrams,
     isActive: variant.isActive,
   };
