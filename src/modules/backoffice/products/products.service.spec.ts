@@ -170,6 +170,7 @@ describe('ProductsService', () => {
         colorName: 'قرمز',
         stockQty: 5,
         priceOverride: null,
+        costPrice: null,
         weightGrams: null,
         isActive: true,
       }),

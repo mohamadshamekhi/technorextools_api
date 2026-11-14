@@ -15,6 +15,12 @@ export const createSparePartSchema = z.object({
   shortDesc: z.string().trim().max(500).nullable().default(null),
   description: z.string().trim().max(20000).nullable().default(null),
   price: z.number().int('قیمت باید عدد صحیح (تومان) باشد').positive('قیمت باید مثبت باشد'),
+  costPrice: z
+    .number()
+    .int('قیمت خرید باید عدد صحیح (تومان) باشد')
+    .min(0, 'قیمت خرید نمی‌تواند منفی باشد')
+    .nullable()
+    .default(null),
   stockQty: z.number().int().min(0).default(0),
   weightGrams: z.number().int().positive().nullable().default(null),
   isActive: z.boolean().default(true),

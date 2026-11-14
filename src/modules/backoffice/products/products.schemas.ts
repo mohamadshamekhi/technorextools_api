@@ -154,6 +154,7 @@ export const createVariantSchema = z.object({
   colorName: z.string().trim().max(50).nullable(),
   stockQty: z.coerce.number().int().min(0, 'موجودی نمی‌تواند منفی باشد').default(0),
   priceOverride: tomanSchema.nullable(),
+  costPrice: tomanSchema.nullable().default(null),
   weightGrams: z.coerce.number().int().min(0).nullable().default(null),
   isActive: z.boolean().default(true),
 });
@@ -188,6 +189,7 @@ export const updateProductVariantSchema = z
       .max(64)
       .regex(/^[A-Za-z0-9-]+$/, 'SKU فقط شامل حروف انگلیسی، عدد و خط تیره است'),
     colorName: z.string().trim().max(50).nullable(),
+    costPrice: tomanSchema.nullable(),
     weightGrams: z.coerce.number().int().min(0).nullable(),
     isActive: z.boolean(),
   })

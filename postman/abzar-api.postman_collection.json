@@ -3875,6 +3875,655 @@
 					]
 				},
 				{
+					"name": "Accounting",
+					"item": [
+						{
+							"name": "List Accounts",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/accounts",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"accounts"
+									],
+									"query": []
+								}
+							},
+							"description": "`accounting.view`. → `FinanceAccountView[]` = `{ id, title, kind: cash|bank|gateway, accountNumber, openingBalance, balance, salesPaymentMethod: online|cash|null, isActive, sortOrder, createdAt }`. `balance` = openingBalance + درآمد − هزینه − انتقال خروجی + انتقال ورودی (تراکنش‌های حذف‌نشده).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Account",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/accounts",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"accounts"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"بانک ملت - حساب جاری\",\n  \"kind\": \"bank\",\n  \"accountNumber\": \"IR120120000000001234567890\",\n  \"openingBalance\": 50000000,\n  \"salesPaymentMethod\": null,\n  \"isActive\": true,\n  \"sortOrder\": 1\n}"
+								}
+							},
+							"description": "`accounting.manage`. Zod `createAccountSchema`: title, kind, accountNumber?, openingBalance? (تومان، می‌تواند منفی باشد), salesPaymentMethod? (درآمد سفارش‌های پرداخت‌شده با این روش روی این حساب می‌نشیند؛ از حساب‌های دیگر برداشته می‌شود), isActive?, sortOrder?. → `FinanceAccountView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"if (pm.response.code < 300) pm.environment.set('financeAccountId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Account",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/accounts/{{financeAccountId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"accounts",
+										"{{financeAccountId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"بانک ملت - جاری اصلی\",\n  \"sortOrder\": 0\n}"
+								}
+							},
+							"description": "`accounting.manage`. Zod `updateAccountSchema` (partial, حداقل یک فیلد). → `FinanceAccountView`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Account",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/accounts/{{financeAccountId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"accounts",
+										"{{financeAccountId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`accounting.manage`. 204. حسابی که تراکنش دارد → 409 (غیرفعالش کنید).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([204,409]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Categories",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/categories?type=expense",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"categories"
+									],
+									"query": [
+										{
+											"key": "type",
+											"value": "expense"
+										}
+									]
+								}
+							},
+							"description": "`accounting.view`. Query `listCategoriesQuerySchema`: type? (income|expense). → `[{ id, title, type, affectsProfit, isSystem, systemKey, isActive, sortOrder }]`. دسته‌های سیستمی (`sales`, `sales_refund`, `inventory_purchase`) در اولین فراخوانی ساخته می‌شوند.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Category",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/categories",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"categories"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"اجاره مغازه\",\n  \"type\": \"expense\",\n  \"affectsProfit\": true,\n  \"isActive\": true,\n  \"sortOrder\": 1\n}"
+								}
+							},
+							"description": "`accounting.manage`. Zod `createCategorySchema`: title, type (income|expense), affectsProfit? (false = جابه‌جایی پول هست ولی در سود و زیان نمی‌آید), isActive?, sortOrder?. → category view.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"if (pm.response.code < 300) pm.environment.set('financeCategoryId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Category",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/categories/{{financeCategoryId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"categories",
+										"{{financeCategoryId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"title\": \"اجاره و شارژ مغازه\"\n}"
+								}
+							},
+							"description": "`accounting.manage`. Zod `updateCategorySchema`. نوع دسته‌ی سیستمی قابل تغییر نیست (400)؛ نوع دسته‌ی دارای تراکنش هم (409).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Category",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/categories/{{financeCategoryId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"categories",
+										"{{financeCategoryId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`accounting.manage`. 204. سیستمی → 400، دارای تراکنش → 409.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([204,400,409]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Create Transaction",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/transactions",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"transactions"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"type\": \"expense\",\n  \"amount\": 12000000,\n  \"accountId\": \"{{financeAccountId}}\",\n  \"categoryId\": \"{{financeCategoryId}}\",\n  \"occurredAt\": \"2026-11-14T08:00:00.000Z\",\n  \"description\": \"اجاره آبان\",\n  \"reference\": \"رسید ۴۵۸۲\"\n}"
+								}
+							},
+							"description": "`accounting.manage`. Zod `createTransactionSchema`: type (income|expense|transfer), amount (int > 0، تومان), accountId, categoryId (الزامی برای income/expense و هم‌نوع با تراکنش), toAccountId (الزامی برای transfer، متفاوت از accountId), occurredAt (ISO), description?, reference?. → `FinanceTransactionView` = `{ id, type, source: manual|order_sale|order_refund, amount, occurredAt, description, reference, account{id,title}, toAccount, category{id,title,type}, orderId, orderNumber, editable, createdAt, updatedAt }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));",
+											"if (pm.response.code < 300) pm.environment.set('financeTransactionId', pm.response.json().id);"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "List Transactions",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/transactions?from=2026-10-23T00:00:00.000Z&to=2026-11-21T23:59:59.999Z&skip=0&take=20",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"transactions"
+									],
+									"query": [
+										{
+											"key": "from",
+											"value": "2026-10-23T00:00:00.000Z"
+										},
+										{
+											"key": "to",
+											"value": "2026-11-21T23:59:59.999Z"
+										},
+										{
+											"key": "skip",
+											"value": "0"
+										},
+										{
+											"key": "take",
+											"value": "20"
+										}
+									]
+								}
+							},
+							"description": "`accounting.view`. Query `listTransactionsQuerySchema`: from?, to?, type?, source?, accountId? (مبدأ یا مقصد), categoryId?, q? (شرح/مرجع/شماره سفارش), skip, take(≤100). → `{ items: FinanceTransactionView[], total, skip, take, totals: { income, expense, transfer } }` (totals روی کل فیلتر).",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Export Transactions (CSV)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/transactions/export?from=2026-10-23T00:00:00.000Z&to=2026-11-21T23:59:59.999Z",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"transactions",
+										"export"
+									],
+									"query": [
+										{
+											"key": "from",
+											"value": "2026-10-23T00:00:00.000Z"
+										},
+										{
+											"key": "to",
+											"value": "2026-11-21T23:59:59.999Z"
+										}
+									]
+								}
+							},
+							"description": "`accounting.view`. همان فیلترهای List Transactions (بدون صفحه‌بندی، حداکثر ۲۰٬۰۰۰ ردیف). → `text/csv` با BOM (تاریخ شمسی)، `Content-Disposition: attachment`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Get Transaction",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/transactions/{{financeTransactionId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"transactions",
+										"{{financeTransactionId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`accounting.view`. → `FinanceTransactionView`. حذف‌شده → 404.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Update Transaction",
+							"request": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/transactions/{{financeTransactionId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"transactions",
+										"{{financeTransactionId}}"
+									],
+									"query": []
+								},
+								"body": {
+									"mode": "raw",
+									"raw": "{\n  \"amount\": 12500000,\n  \"description\": \"اجاره + شارژ آبان\"\n}"
+								}
+							},
+							"description": "`accounting.manage`. Zod `updateTransactionSchema` (partial). قوانین نوع/دسته/حساب مقصد روی نتیجه‌ی ادغام‌شده دوباره چک می‌شود. تراکنش خودکار سفارش → 409.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Delete Transaction",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/transactions/{{financeTransactionId}}",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"transactions",
+										"{{financeTransactionId}}"
+									],
+									"query": []
+								}
+							},
+							"description": "`accounting.manage`. 204 (حذف نرم). تراکنش خودکار سفارش → 409.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([204,409]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Sync Orders",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/sync-orders",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"sync-orders"
+									],
+									"query": []
+								}
+							},
+							"description": "`accounting.manage`. ثبت درآمد فروش برای همه‌ی سفارش‌های پرداخت‌شده‌ای که هنوز ثبت نشده‌اند (و برگشت برای سفارش‌های پرداخت‌شده‌ی لغوشده). Idempotent. → `{ scanned, salesPosted, refundsPosted }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Profit & Loss",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/reports/profit-loss?from=2026-10-23T00:00:00.000Z&to=2026-11-21T23:59:59.999Z",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"reports",
+										"profit-loss"
+									],
+									"query": [
+										{
+											"key": "from",
+											"value": "2026-10-23T00:00:00.000Z"
+										},
+										{
+											"key": "to",
+											"value": "2026-11-21T23:59:59.999Z"
+										}
+									]
+								}
+							},
+							"description": "`accounting.view`. Query `profitLossQuerySchema`: from?, to? (پیش‌فرض ۳۰ روز اخیر، حداکثر ۳ سال). → `{ from, to, sales{gross,refunds,net,orderCount}, cogs{amount,linesWithoutCost}, grossProfit, otherIncome{total,byCategory[]}, expenses{total,byCategory[]}, netProfit, nonProfitExpenses{…}, nonProfitIncome{…}, cashFlow{granularity: day|month, buckets[{key (شمسی),income,expense,net}]} }`.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						},
+						{
+							"name": "Export Profit & Loss (CSV)",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{apiBase}}/backoffice/accounting/reports/profit-loss/export?from=2026-10-23T00:00:00.000Z&to=2026-11-21T23:59:59.999Z",
+									"host": [
+										"{{apiBase}}"
+									],
+									"path": [
+										"backoffice",
+										"accounting",
+										"reports",
+										"profit-loss",
+										"export"
+									],
+									"query": [
+										{
+											"key": "from",
+											"value": "2026-10-23T00:00:00.000Z"
+										},
+										{
+											"key": "to",
+											"value": "2026-11-21T23:59:59.999Z"
+										}
+									]
+								}
+							},
+							"description": "`accounting.view`. همان Query گزارش سود و زیان → `text/csv` با BOM.",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"type": "text/javascript",
+										"exec": [
+											"pm.test('ok', () => pm.expect(pm.response.code).to.be.oneOf([200,201,204]));"
+										]
+									}
+								}
+							]
+						}
+					]
+				},
+				{
 					"name": "Media",
 					"item": [
 						{

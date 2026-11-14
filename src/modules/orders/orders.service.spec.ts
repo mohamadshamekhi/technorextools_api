@@ -1,3 +1,4 @@
+import type { AccountingPostingService } from '../accounting/accounting-posting.service';
 import { ConflictException } from '@nestjs/common';
 import { OrderStatus } from '@prisma/client';
 import { OrdersService } from './orders.service';
@@ -48,6 +49,10 @@ function build(transitionResult: OrderDetailRow | null) {
     findActiveByUserId: jest.fn().mockResolvedValue(null),
   } as unknown as CartRepository;
   const notifications = { create: jest.fn() } as unknown as NotificationRepository;
+  const accounting = {
+    safeRecordSale: jest.fn().mockResolvedValue(undefined),
+    safeRecordRefund: jest.fn().mockResolvedValue(undefined),
+  } as unknown as AccountingPostingService;
   const svc = new OrdersService(
     orders,
     payments,
@@ -63,8 +68,9 @@ function build(transitionResult: OrderDetailRow | null) {
     { getNumber: jest.fn().mockResolvedValue(0) } as unknown as AppSettingsService,
     { sendTemplate: jest.fn() } as unknown as SmsService,
     notifications,
+    accounting,
   );
-  return { svc, orders, variants, loyalty, notifications };
+  return { svc, orders, variants, loyalty, notifications, accounting };
 }
 
 describe('OrdersService', () => {
@@ -92,6 +98,20 @@ describe('OrdersService', () => {
       lost.svc.adminSetStatus(orderRow(OrderStatus.paid), OrderStatus.cancelled, 'admin'),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(lost.variants.adjustStock).not.toHaveBeenCalled();
+  });
+
+  it('posts the sale to accounting on payment and the refund on a paid-order cancel', async () => {
+    const paid = build(orderRow(OrderStatus.paid));
+    await paid.svc.markPaid(orderRow(OrderStatus.pending_payment), 'REF');
+    expect(paid.accounting.safeRecordSale).toHaveBeenCalledTimes(1);
+
+    const raced = build(null);
+    await raced.svc.markPaid(orderRow(OrderStatus.pending_payment), 'REF');
+    expect(raced.accounting.safeRecordSale).not.toHaveBeenCalled();
+
+    const cancel = build(orderRow(OrderStatus.cancelled));
+    await cancel.svc.adminSetStatus(orderRow(OrderStatus.paid), OrderStatus.cancelled, 'admin');
+    expect(cancel.accounting.safeRecordRefund).toHaveBeenCalledTimes(1);
   });
 
   it('writes an in-app notification for customer-visible status changes', async () => {

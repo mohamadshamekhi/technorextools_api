@@ -20,6 +20,7 @@ import { UserRepository } from '../access/repositories/user.repository';
 import { NotificationRepository } from '../notifications/repositories/notification.repository';
 import { OrderRepository, type OrderDetailRow } from './repositories/order.repository';
 import { PaymentRepository } from './repositories/payment.repository';
+import { AccountingPostingService } from '../accounting/accounting-posting.service';
 
 /** Terminal / paid-family statuses that must never regress. */
 const PAID_FAMILY: OrderStatus[] = [
@@ -68,6 +69,7 @@ export class OrdersService {
     private readonly settings: AppSettingsService,
     private readonly sms: SmsService,
     private readonly notifications: NotificationRepository,
+    private readonly accounting: AccountingPostingService,
   ) {}
 
   async requireByNumber(orderNumber: string): Promise<OrderDetailRow> {
@@ -102,6 +104,7 @@ export class OrdersService {
 
     const pending = await this.payments.findLatestPendingForOrder(order.id);
     if (pending) await this.payments.markSuccess(pending.id, refId);
+    await this.accounting.safeRecordSale(order);
 
     if (order.discountId) {
       await this.discounts.incrementUsage(order.discountId);
@@ -177,6 +180,7 @@ export class OrdersService {
     if (next === OrderStatus.cancelled && PAID_FAMILY.includes(order.status)) {
       await this.adjustOrderStock(order, 1);
       await this.loyalty.refundRedemption(order.userId, order.id);
+      await this.accounting.safeRecordRefund(order);
     }
     const withShipment =
       shipment && (shipment.carrier !== undefined || shipment.trackingNumber !== undefined)
